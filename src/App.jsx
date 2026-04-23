@@ -1567,11 +1567,19 @@ td{
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes slideR{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@media (max-width: 1400px){
+  .dashboard-top-grid{grid-template-columns:repeat(4, minmax(0, 1fr)) !important;}
+  .dashboard-main-grid{grid-template-columns:1fr !important;}
+}
+
 @media (max-width: 1100px){
   .grid-3{grid-template-columns:repeat(2,1fr)!important}
+  .dashboard-top-grid{grid-template-columns:repeat(2, minmax(0, 1fr)) !important;}
 }
+
 @media (max-width: 900px){
   .mobile-stack{grid-template-columns:1fr!important}
+  .dashboard-top-grid{grid-template-columns:1fr !important;}
 }
 `;
 
@@ -2132,313 +2140,441 @@ useEffect(() => {
 
         <div style={{ flex: 1, padding: "18px 22px", overflowY: "auto" }}>
           {page === "dashboard" && (
-            
-            <><div className="pa">
-              <div className="grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
-                <MetricCard
-                  label="Профит сегодня"
-                  value={`${(currentOpenStats?.net || netToday) >= 0 ? "+" : ""}${fmt(currentOpenStats?.net || netToday)} ₽`}
-                  sub={currentOpenDay ? `${toRuDate(currentOpenDay.date)} · открыт` : "день не открыт"}
-                  delay={0} />
-                <MetricCard
-                  label="Общий профит"
-                  value={`${totalProfit >= 0 ? "+" : ""}${fmt(totalProfit)} ₽`}
-                  sub={`${workDays.filter((d) => d.status === "closed").length} закрытых дней`}
-                  delay={0.05} />
-                <MetricCard
-                  label="Продажи сегодня"
-                  value={String(currentOpenStats?.qty || totalQtyToday)}
-                  sub={`${currentOpenStats?.revenue ? fmt(currentOpenStats.revenue) + " ₽ оборот" : "нет продаж"}`}
-                  delay={0.1} />
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                  gap: 10,
-                  marginBottom: 16,
-                }}
-              >
-                <MetricCard
-                  label="Отзывы"
-                  value={String(playerokStats.reviews || 0)}
-                  sub={playerokStats.sync_ok ? `Рейтинг ${playerokStats.rating || 0}` : "нет синхронизации"} />
-                <MetricCard
-                  label="Баланс"
-                  value={`${rub(playerokStats.balance_total)} ₽`}
-                  sub={`К выводу ${rub(playerokStats.balance_available)} ₽`} />
-                <MetricCard
-                  label="В ожидании"
-                  value={String(playerokStats.pending_orders || 0)}
-                  sub={`Pending income ${rub(playerokStats.pending_income)} ₽`} />
-                <MetricCard
-                  label="Выполнено за день"
-                  value={String(playerokStats.completed_today || 0)}
-                  sub={statsLoading
-                    ? "обновляем..."
-                    : playerokStats.sync_ok
-                      ? "синхронизировано"
-                      : "нет синхронизации"} />
-              </div>
-              <div
-  className="mobile-stack"
-  style={{
-    display: "grid",
-    gridTemplateColumns: "220px minmax(0, 1fr)",
-    gap: 12,
-    marginBottom: 16,
-    alignItems: "start",
-  }}
->
-  <div className="card" style={{ padding: "14px 16px", minHeight: 150 }}>
-    <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", marginBottom: 10 }}>
-      Профит по дням
-    </div>
-    <MiniBar data={chartData.length ? chartData : [{ l: "—", v: 0 }]} />
-  </div>
-
-  <div
-    className="card"
-    style={{
-      padding: "14px 16px",
-      minHeight: 150,
-      height: 320,
-      display: "flex",
-      flexDirection: "column",
-    }}
-  >
+  <div className="pa" style={{ display: "grid", gap: 14 }}>
     <div
+      className="dashboard-top-grid"
       style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 10,
+        display: "grid",
+        gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
         gap: 10,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-          Live покупки
-        </div>
+      <MetricCard
+        label="Профит сегодня"
+        value={`${(currentOpenStats?.net || netToday) >= 0 ? "+" : ""}${fmt(currentOpenStats?.net || netToday)} ₽`}
+        sub={currentOpenDay ? `${toRuDate(currentOpenDay.date)} · открыт` : "день не открыт"}
+      />
 
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 800,
-            color: "#86efac",
-            background: "rgba(34,197,94,.12)",
-            border: "1px solid rgba(34,197,94,.18)",
-            borderRadius: 999,
-            padding: "2px 6px",
-            letterSpacing: ".04em",
-          }}
-        >
-          LIVE
-        </span>
-      </div>
+      <MetricCard
+        label="Общий профит"
+        value={`${totalProfit >= 0 ? "+" : ""}${fmt(totalProfit)} ₽`}
+        sub={`${workDays.filter((d) => d.status === "closed").length} закрытых дней`}
+      />
 
-      <button
-        className="btn-g"
-        style={{ padding: "6px 10px", fontSize: 11 }}
-        onClick={() => setOrdersModalOpen(true)}
-      >
-        Открыть всё
-      </button>
+      <MetricCard
+        label="Продажи сегодня"
+        value={String(currentOpenStats?.qty || totalQtyToday)}
+        sub={`${currentOpenStats?.revenue ? `${fmt(currentOpenStats.revenue)} ₽ оборот` : "нет продаж"}`}
+      />
+
+      <MetricCard
+        label="Средний чек"
+        value={`${
+          (currentOpenStats?.qty || totalQtyToday) > 0
+            ? fmt(
+                Math.round(
+                  (currentOpenStats?.revenue || 0) /
+                    Math.max(currentOpenStats?.qty || totalQtyToday, 1)
+                )
+              )
+            : "0"
+        } ₽`}
+        sub={`+${fmtF(playerokStats.rating || 0)} к вчера`}
+      />
+
+      <MetricCard
+        label="Отзывы"
+        value={String(playerokStats.reviews || 0)}
+        sub={playerokStats.sync_ok ? `Рейтинг ${playerokStats.rating || 0}` : "нет синхронизации"}
+      />
+
+      <MetricCard
+        label="В ожидании"
+        value={String(playerokStats.pending_orders || 0)}
+        sub={`${rub(playerokStats.pending_income)} ₽`}
+      />
+
+      <MetricCard
+        label="Выполнено за день"
+        value={String(playerokStats.completed_today || 0)}
+        sub={
+          statsLoading
+            ? "обновляем..."
+            : playerokStats.sync_ok
+            ? "синхронизировано"
+            : "нет синхронизации"
+        }
+      />
     </div>
 
     <div
+      className="dashboard-main-grid"
       style={{
         display: "grid",
-        gap: 8,
-        overflowY: "auto",
-        paddingRight: 4,
-        flex: 1,
+        gridTemplateColumns: "1.05fr 1.1fr 2.1fr",
+        gap: 12,
+        alignItems: "stretch",
       }}
     >
-      {playerokOrders.map((order) => {
-        const price = order.item?.price || order.item?.raw_price || 0;
-        const uiStatus = getOrderUiStatus(order);
+      <div className="card" style={{ padding: "14px 16px", minHeight: 278 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 10,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
+            Профит по дням
+          </div>
 
-        return (
           <div
-            key={order.id}
             style={{
-              padding: "8px 10px",
+              fontSize: 11,
+              color: "var(--text3)",
+              padding: "6px 10px",
               borderRadius: 10,
-              background: "rgba(168,85,247,.05)",
-              border: "1px solid rgba(168,85,247,.12)",
+              background: "#140f1d",
+              border: "1px solid var(--border)",
             }}
           >
-            <div
-              style={{
-                fontSize: 11.5,
-                fontWeight: 700,
-                color: "var(--text)",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                marginBottom: 4,
-              }}
-            >
-              {order.item?.name || "Без названия"}
+            7 дней
+          </div>
+        </div>
+
+        <MiniBar data={chartData.length ? chartData : [{ l: "—", v: 0 }]} />
+      </div>
+
+      <div
+        className="card"
+        style={{
+          padding: "14px 16px",
+          minHeight: 278,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 10,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
+              Live покупки
             </div>
 
-            <div
+            <span
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 8,
+                fontSize: 9,
+                fontWeight: 800,
+                color: "#86efac",
+                background: "rgba(34,197,94,.12)",
+                border: "1px solid rgba(34,197,94,.18)",
+                borderRadius: 999,
+                padding: "2px 6px",
+                letterSpacing: ".04em",
               }}
             >
-              <div>
-                <div style={{ fontSize: 11, color: "var(--text2)" }}>
-                  {rub(price)} ₽
+              LIVE
+            </span>
+          </div>
+
+          <button
+            className="btn-g"
+            style={{ padding: "6px 10px", fontSize: 11 }}
+            onClick={() => setOrdersModalOpen(true)}
+          >
+            Открыть всё
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gap: 8,
+            flex: 1,
+            overflowY: "auto",
+            paddingRight: 2,
+          }}
+        >
+          {playerokOrders.slice(0, 5).map((order) => {
+            const price = order.item?.price || order.item?.raw_price || 0;
+            const uiStatus = getOrderUiStatus(order);
+
+            return (
+              <div
+                key={order.id}
+                style={{
+                  padding: "9px 10px",
+                  borderRadius: 10,
+                  background: "rgba(168,85,247,.05)",
+                  border: "1px solid rgba(168,85,247,.12)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    color: "var(--text)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    marginBottom: 5,
+                  }}
+                >
+                  {order.item?.name || "Без названия"}
                 </div>
-                <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>
-                  {toRuTime(order.created_at || order.createdAt)}
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--text2)" }}>
+                      {rub(price)} ₽
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>
+                      {toRuTime(order.created_at || order.createdAt)}
+                    </div>
+                  </div>
+
+                  <Badge status={uiStatus} />
                 </div>
               </div>
+            );
+          })}
 
-              <Badge status={uiStatus} />
+          {!playerokOrders.length && (
+            <div style={{ color: "var(--text3)", fontSize: 12 }}>
+              Пока нет данных
             </div>
-          </div>
-        );
-      })}
-
-      {!playerokOrders.length && (
-        <div style={{ color: "var(--text3)", fontSize: 12 }}>
-          Пока нет данных
+          )}
         </div>
-      )}
+      </div>
+
+      <div className="card" style={{ padding: 0, overflow: "hidden", minHeight: 278 }}>
+        <div
+          style={{
+            padding: "12px 16px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
+            Торговая таблица · {new Date().toLocaleDateString("ru-RU")}
+          </span>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, color: "var(--text3)" }}>
+              Сортировка по количеству продаж
+            </span>
+            <button
+              className="btn-g"
+              style={{ fontSize: 11, padding: "4px 9px" }}
+              onClick={() => {
+                if (!window.confirm("Сбросить счётчики сегодня?")) return;
+                const upd = { ...dailyCounts };
+                delete upd[dk];
+                setDailyCounts(upd);
+                showToast("Счётчики сброшены");
+              }}
+            >
+              Сбросить
+            </button>
+          </div>
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Лот</th>
+                <th>Цена</th>
+                <th>Закуп / ед</th>
+                <th>Профит / ед</th>
+                <th>Кол-во</th>
+                <th>Поднятия</th>
+                <th>Итог</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedTradeProducts.slice(0, 6).map((p) => {
+                const e = dayEntry[p.id] || { qty: 0, bumps: 0 };
+                const pp = Math.round(
+                  calcProfit({
+                    salePrice: p.sale_price_rub,
+                    buyUsd: p.purchase_usd,
+                    playerokRate,
+                    saleCommission: p.sale_commission,
+                  })
+                );
+                const tariff = getTariffByPrice(p.sale_price_rub, p.sale_commission);
+                const bumpStep = tariff.bump;
+                const total = pp * Number(e.qty || 0) - Number(e.bumps || 0);
+
+                return (
+                  <tr key={p.id} className="tr">
+                    <td style={{ fontWeight: 700, color: "var(--text)", fontSize: 13 }}>
+                      {p.name}
+                    </td>
+                    <td style={{ fontWeight: 700, color: "var(--text)" }}>
+                      {fmt(p.sale_price_rub)} ₽
+                    </td>
+                    <td style={{ color: "var(--text3)" }}>${fmtF(p.purchase_usd)}</td>
+                    <td
+                      style={{
+                        fontWeight: 800,
+                        color: pp >= 0 ? "var(--success)" : "var(--danger)",
+                      }}
+                    >
+                      {pp >= 0 ? "+" : ""}
+                      {fmt(pp)} ₽
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button className="cnt" onClick={() => updateDay(p.id, "qty", -1)}>
+                          −
+                        </button>
+                        <span
+                          style={{
+                            fontWeight: 800,
+                            color: "var(--text)",
+                            fontSize: 15,
+                            minWidth: 22,
+                            textAlign: "center",
+                          }}
+                        >
+                          {e.qty || 0}
+                        </span>
+                        <button className="cnt" onClick={() => updateDay(p.id, "qty", 1)}>
+                          +
+                        </button>
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <button
+                            className="cnt"
+                            onClick={() => updateDay(p.id, "bumps", -bumpStep)}
+                          >
+                            −
+                          </button>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              color:
+                                Number(e.bumps || 0) > 0 ? "var(--warning)" : "var(--text3)",
+                              fontSize: 12,
+                              minWidth: 48,
+                              textAlign: "center",
+                            }}
+                          >
+                            {Number(e.bumps || 0) > 0 ? `−${fmt(e.bumps)} ₽` : "0"}
+                          </span>
+                          <button
+                            className="cnt"
+                            onClick={() => updateDay(p.id, "bumps", bumpStep)}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 10, color: "var(--text3)" }}>
+                          шаг: {fmt(bumpStep)} ₽
+                        </div>
+                      </div>
+                    </td>
+                    <td
+                      style={{
+                        fontWeight: 800,
+                        fontSize: 13,
+                        color:
+                          Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0
+                            ? total >= 0
+                              ? "var(--success)"
+                              : "var(--danger)"
+                            : "var(--text3)",
+                      }}
+                    >
+                      {Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0
+                        ? `${total >= 0 ? "+" : ""}${fmt(total)} ₽`
+                        : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {!sortedTradeProducts.length && (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "30px", color: "var(--text3)" }}>
+                    Товаров нет — добавь в Каталоге
+                  </td>
+                </tr>
+              )}
+
+              <tr style={{ background: "rgba(168,85,247,.05)" }}>
+                <td
+                  colSpan={4}
+                  style={{
+                    fontWeight: 800,
+                    color: "var(--text)",
+                    fontSize: 12,
+                    borderTop: "1px solid var(--border2)",
+                  }}
+                >
+                  Итого
+                </td>
+                <td
+                  style={{
+                    fontWeight: 800,
+                    color: "var(--text)",
+                    borderTop: "1px solid var(--border2)",
+                  }}
+                >
+                  {totalQtyToday}
+                </td>
+                <td
+                  style={{
+                    color: totalBumpsToday > 0 ? "var(--warning)" : "var(--text3)",
+                    fontWeight: 700,
+                    borderTop: "1px solid var(--border2)",
+                  }}
+                >
+                  {totalBumpsToday > 0 ? `−${fmt(totalBumpsToday)} ₽` : "—"}
+                </td>
+                <td
+                  style={{
+                    fontWeight: 800,
+                    fontSize: 14,
+                    color: netToday >= 0 ? "var(--success)" : "var(--danger)",
+                    borderTop: "1px solid var(--border2)",
+                  }}
+                >
+                  {netToday >= 0 ? "+" : ""}
+                  {fmt(netToday)} ₽
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
-</div>
-            </div><div className="card" style={{ padding: 0, overflow: "hidden" }}>
-                <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-                    Торговая таблица · {new Date().toLocaleDateString("ru-RU")}
-                  </span>
-
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 11, color: "var(--text3)" }}>
-                      Сортировка по количеству продаж
-                    </span>
-                    <button
-                      className="btn-g"
-                      style={{ fontSize: 11, padding: "4px 9px" }}
-                      onClick={() => {
-                        if (!window.confirm("Сбросить счётчики сегодня?")) return;
-                        const upd = { ...dailyCounts };
-                        delete upd[dk];
-                        setDailyCounts(upd);
-                        showToast("Счётчики сброшены");
-                      } }
-                    >
-                      Сбросить
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ overflowX: "auto" }}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Лот</th>
-                        <th>Категория</th>
-                        <th>Цена товара</th>
-                        <th>Закуп / ед</th>
-                        <th>Профит / ед</th>
-                        <th>Количество</th>
-                        <th>Поднятия</th>
-                        <th>Итог</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedTradeProducts.map((p) => {
-                        const e = dayEntry[p.id] || { qty: 0, bumps: 0 };
-                        const pp = Math.round(
-                          calcProfit({
-                            salePrice: p.sale_price_rub,
-                            buyUsd: p.purchase_usd,
-                            playerokRate,
-                            saleCommission: p.sale_commission,
-                          })
-                        );
-                        const tariff = getTariffByPrice(p.sale_price_rub, p.sale_commission);
-                        const bumpStep = tariff.bump;
-                        const total = pp * Number(e.qty || 0) - Number(e.bumps || 0);
-                        const category = categories.find((c) => Number(c.id) === Number(p.category_id));
-
-                        return (
-                          <tr key={p.id} className="tr">
-                            <td style={{ fontWeight: 700, color: "var(--text)", fontSize: 13 }}>{p.name}</td>
-                            <td>
-                              <span className="cat-tag" style={{ marginBottom: 0 }}>
-                                {category?.name || "—"}
-                              </span>
-                            </td>
-                            <td style={{ fontWeight: 700, color: "var(--text)" }}>{fmt(p.sale_price_rub)} ₽</td>
-                            <td style={{ color: "var(--text3)" }}>${fmtF(p.purchase_usd)}</td>
-                            <td style={{ fontWeight: 800, color: pp >= 0 ? "var(--success)" : "var(--danger)" }}>
-                              {pp >= 0 ? "+" : ""}{fmt(pp)} ₽
-                            </td>
-                            <td>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <button className="cnt" onClick={() => updateDay(p.id, "qty", -1)}>−</button>
-                                <span style={{ fontWeight: 800, color: "var(--text)", fontSize: 15, minWidth: 22, textAlign: "center" }}>
-                                  {e.qty || 0}
-                                </span>
-                                <button className="cnt" onClick={() => updateDay(p.id, "qty", 1)}>+</button>
-                              </div>
-                            </td>
-                            <td>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", -bumpStep)}>−</button>
-                                  <span style={{ fontWeight: 700, color: Number(e.bumps || 0) > 0 ? "var(--warning)" : "var(--text3)", fontSize: 12, minWidth: 48, textAlign: "center" }}>
-                                    {Number(e.bumps || 0) > 0 ? `−${fmt(e.bumps)} ₽` : "0"}
-                                  </span>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", bumpStep)}>+</button>
-                                </div>
-                                <div style={{ fontSize: 10, color: "var(--text3)" }}>шаг: {fmt(bumpStep)} ₽</div>
-                              </div>
-                            </td>
-                            <td style={{ fontWeight: 800, fontSize: 13, color: Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0 ? total >= 0 ? "var(--success)" : "var(--danger)" : "var(--text3)" }}>
-                              {Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0 ? `${total >= 0 ? "+" : ""}${fmt(total)} ₽` : "—"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-
-                      {!sortedTradeProducts.length && (
-                        <tr>
-                          <td colSpan={8} style={{ textAlign: "center", padding: "30px", color: "var(--text3)" }}>
-                            Товаров нет — добавь в Каталоге
-                          </td>
-                        </tr>
-                      )}
-
-                      <tr style={{ background: "rgba(168,85,247,.05)" }}>
-                        <td colSpan={5} style={{ fontWeight: 800, color: "var(--text)", fontSize: 12, borderTop: "1px solid var(--border2)" }}>
-                          ИТОГО
-                        </td>
-                        <td style={{ fontWeight: 800, color: "var(--text)", borderTop: "1px solid var(--border2)" }}>
-                          {totalQtyToday}
-                        </td>
-                        <td style={{ color: totalBumpsToday > 0 ? "var(--warning)" : "var(--text3)", fontWeight: 700, borderTop: "1px solid var(--border2)" }}>
-                          {totalBumpsToday > 0 ? `−${fmt(totalBumpsToday)} ₽` : "—"}
-                        </td>
-                        <td style={{ fontWeight: 800, fontSize: 14, color: netToday >= 0 ? "var(--success)" : "var(--danger)", borderTop: "1px solid var(--border2)" }}>
-                          {netToday >= 0 ? "+" : ""}{fmt(netToday)} ₽
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div></>
-          )}
+)}
 
           {page === "workdays" && (
             <WorkDaysPage
