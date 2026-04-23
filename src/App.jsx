@@ -53,6 +53,24 @@ function extractChatUrl(order) {
   return order?.chat_url || order?.chatUrl || order?.buyer_chat_url || order?.buyerChatUrl || "";
 }
 
+function extractOrderItemId(order) {
+  const value = order?.item?.id || order?.item_id || order?.product_id || order?.lot_id || order?.offer_id || "";
+  return value === null || value === undefined ? "" : String(value).trim();
+}
+
+function extractSlugFromUrl(url) {
+  try {
+    const clean = String(url || "").trim();
+    if (!clean) return "";
+    const parsed = new URL(clean);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : "";
+  } catch {
+    const parts = String(url || "").split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1].split("?")[0] : "";
+  }
+}
+
 function normalizeTitle(v) {
   return String(v || "")
     .toLowerCase()
