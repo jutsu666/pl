@@ -53,18 +53,6 @@ function extractChatUrl(order) {
   return order?.chat_url || order?.chatUrl || order?.buyer_chat_url || order?.buyerChatUrl || "";
 }
 
-function extractSlugFromUrl(url) {
-  try {
-    const value = String(url || "").trim();
-    if (!value) return "";
-    const clean = value.split("?")[0].replace(/\/+$/, "");
-    const parts = clean.split("/").filter(Boolean);
-    return parts[parts.length - 1] || "";
-  } catch {
-    return "";
-  }
-}
-
 function normalizeTitle(v) {
   return String(v || "")
     .toLowerCase()
@@ -922,33 +910,17 @@ export default function App() {
   const triggerLift = useCallback(async (product) => {
     const meta = productMeta[product.id] || {};
     const lotUrl = meta.lotUrl || product?.lot_url || "";
-    const slug = meta.slug || extractSlugFromUrl(lotUrl);
-    const itemId = meta.itemId || product?.item_id || "";
     if (BACKEND_URL) {
       try {
-        const payload = {};
-        if (itemId) payload.itemId = String(itemId);
-        if (slug) payload.slug = String(slug);
-        if (lotUrl) payload.lotUrl = String(lotUrl);
-        if (meta.priorityStatusId) payload.priorityStatusId = String(meta.priorityStatusId);
-
         const res = await fetch(`${BACKEND_URL}/bump`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ productId: product.id, lotUrl }),
         });
-
         if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data?.lot_url) saveProductMeta(product.id, { lotUrl: data.lot_url });
-          if (data?.slug) saveProductMeta(product.id, { slug: data.slug });
-          if (data?.item_id) saveProductMeta(product.id, { itemId: data.item_id });
           showToast(`Запрос на поднятие отправлен: ${getProductDisplayName(product)}`);
           return;
         }
-
-        const errText = await res.text().catch(() => "");
-        console.error("Ошибка поднятия, ответ сервера:", errText);
       } catch (e) {
         console.error("Ошибка поднятия:", e);
       }
@@ -958,7 +930,7 @@ export default function App() {
       return;
     }
     showToast("Нет ссылки на лот или backend для поднятия", "err");
-  }, [productMeta, showToast, getProductDisplayName, saveProductMeta]);
+  }, [productMeta, showToast, getProductDisplayName]);
 
   const toggleAutoRelist = useCallback((productId) => {
     const current = !!(productMeta[productId]?.autoRelist);
@@ -1013,6 +985,8 @@ export default function App() {
         statusLabel: statusKey === "sold" ? "Продано" : "Ожидание",
         lotUrl: extractLotUrl(order),
         chatUrl: extractChatUrl(order),
+        itemId: extractOrderItemId(order),
+        slug: String(order?.item?.slug || extractSlugFromUrl(extractLotUrl(order)) || "").trim(),
         isDone: DONE_ORDER_STATUSES.includes(order?.status),
       };
     })
@@ -1076,6 +1050,19 @@ export default function App() {
 
 
   useEffect(() => {
+    if (!liveOrders.length) return;
+    liveOrders.forEach(order => {
+      if (!order.product) return;
+      const current = productMeta[order.product.id] || {};
+      const patch = {};
+      if (!current.lotUrl && order.lotUrl) patch.lotUrl = order.lotUrl;
+      if (!current.itemId && order.itemId) patch.itemId = order.itemId;
+      if (!current.slug && order.slug) patch.slug = order.slug;
+      if (Object.keys(patch).length) saveProductMeta(order.product.id, patch);
+    });
+  }, [liveOrders, productMeta, saveProductMeta]);
+
+  useEffect(() => {
     if (!BACKEND_URL || !liveOrders.length) return;
     liveOrders.forEach(async (order) => {
       if (!order.isDone || !order.product) return;
@@ -1084,18 +1071,13 @@ export default function App() {
       relistSeenRef.current[order.id] = true;
       if (!meta.autoRelist) return;
       try {
-        const lotUrl = meta.lotUrl || order.lotUrl || "";
-        const slug = meta.slug || extractSlugFromUrl(lotUrl);
-        const itemId = meta.itemId || order.product?.item_id || "";
         await fetch(`${BACKEND_URL}/relist`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            orderId: String(order.id || ""),
-            ...(itemId ? { itemId: String(itemId) } : {}),
-            ...(slug ? { slug: String(slug) } : {}),
-            ...(lotUrl ? { lotUrl: String(lotUrl) } : {}),
-            ...(meta.priorityStatusId ? { priorityStatusId: String(meta.priorityStatusId) } : {}),
+            orderId: order.id,
+            productId: order.product.id,
+            lotUrl: meta.lotUrl || order.lotUrl || "",
           }),
         });
       } catch (e) {
@@ -1712,6 +1694,9 @@ function EditProductModal({ open, onClose, product: p, categories, meta = {}, on
   const [displayName, setDisplayName] = useState(meta.displayName || p.name || "");
   const [matchText, setMatchText] = useState(meta.matchText || p.name || "");
   const [lotUrl, setLotUrl] = useState(meta.lotUrl || "");
+  const [itemId, setItemId] = useState(meta.itemId || "");
+  const [slug, setSlug] = useState(meta.slug || "");
+  const [priorityStatusId, setPriorityStatusId] = useState(meta.priorityStatusId || "");
   const [position, setPosition] = useState(meta.position || "");
   const [autoRelist, setAutoRelist] = useState(!!meta.autoRelist);
 
@@ -1725,6 +1710,9 @@ function EditProductModal({ open, onClose, product: p, categories, meta = {}, on
     setDisplayName(meta.displayName || p.name || "");
     setMatchText(meta.matchText || p.name || "");
     setLotUrl(meta.lotUrl || "");
+    setItemId(meta.itemId || "");
+    setSlug(meta.slug || "");
+    setPriorityStatusId(meta.priorityStatusId || "");
     setPosition(meta.position || "");
     setAutoRelist(!!meta.autoRelist);
   }, [p, meta]);
@@ -1745,12 +1733,17 @@ function EditProductModal({ open, onClose, product: p, categories, meta = {}, on
         <FI label="Ссылка на лот" value={lotUrl} onChange={e => setLotUrl(e.target.value)} placeholder="https://..." />
         <FI label="Позиция" value={position} onChange={e => setPosition(e.target.value)} placeholder="1" />
       </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+        <FI label="Playerok itemId" value={itemId} onChange={e => setItemId(e.target.value)} placeholder="1f13..." />
+        <FI label="Playerok slug" value={slug} onChange={e => setSlug(e.target.value)} placeholder="xxxx-product-slug" />
+      </div>
+      <FI label="Priority status id" value={priorityStatusId} onChange={e => setPriorityStatusId(e.target.value)} placeholder="необязательно" />
       <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text2)", fontSize: 12, marginTop: 6 }}>
         <input type="checkbox" checked={autoRelist} onChange={e => setAutoRelist(e.target.checked)} />
         Автоперевыставление после покупки
       </label>
       <MFoot onClose={onClose} onSubmit={() => {
-        onSaveMeta?.(p.id, { displayName, matchText, lotUrl, position, autoRelist });
+        onSaveMeta?.(p.id, { displayName, matchText, lotUrl, itemId, slug, priorityStatusId, position, autoRelist });
         onSave(p.id, { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status });
       }} label="Сохранить" />
     </Modal>
