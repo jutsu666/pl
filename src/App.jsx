@@ -42,6 +42,17 @@ const toRuDate = (iso) => {
   }
 };
 
+const toRuTime = (iso) => {
+  try {
+    return new Date(iso).toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+};
+
 const SALE_TARIFFS = {
   10: [
     { min: 90, max: 499, listing: 19, bump: 9 },
@@ -1428,6 +1439,7 @@ export default function App() {
   const [workDays, setWorkDays] = useState(() => ls(LS.workDays, []));
 
   const [selectedWorkDayId, setSelectedWorkDayId] = useState(null);
+
   const [playerokStats, setPlayerokStats] = useState({
   reviews: 0,
   rating: 0,
@@ -1440,7 +1452,10 @@ export default function App() {
   completed_today: 0,
   last_sync_at: null,
   sync_ok: false,
-  });
+ });
+
+  const [playerokOrders, setPlayerokOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   const [statsLoading, setStatsLoading] = useState(false);
   const [modals, setModals] = useState({});
@@ -1460,6 +1475,7 @@ export default function App() {
 
   const openM = (name) => setModals((m) => ({ ...m, [name]: true }));
   const closeM = (name) => setModals((m) => ({ ...m, [name]: false }));
+
   const loadPlayerokStats = useCallback(async () => {
   if (!BACKEND_URL) return;
 
@@ -1474,7 +1490,23 @@ export default function App() {
   } finally {
     setStatsLoading(false);
   }
- }, []);
+}, []);
+
+  const loadPlayerokOrders = useCallback(async () => {
+  if (!BACKEND_URL) return;
+
+  try {
+    setOrdersLoading(true);
+    const res = await fetch(`${BACKEND_URL}/orders`);
+    if (!res.ok) throw new Error("Не удалось загрузить orders");
+    const data = await res.json();
+    setPlayerokOrders(Array.isArray(data.orders) ? data.orders : []);
+  } catch (e) {
+    console.error("Ошибка загрузки Playerok orders:", e);
+  } finally {
+    setOrdersLoading(false);
+  }
+}, []);
   useEffect(() => {
     lsSet(LS.workDays, workDays);
   }, [workDays]);
@@ -1511,6 +1543,18 @@ export default function App() {
 
   return () => clearInterval(timer);
  }, [loadPlayerokStats]);
+ 
+ useEffect(() => {
+  if (!BACKEND_URL) return;
+
+  loadPlayerokOrders();
+
+  const timer = setInterval(() => {
+    loadPlayerokOrders();
+  }, 15000);
+
+  return () => clearInterval(timer);
+ }, [loadPlayerokOrders]);
 
   const loadDemo = () => {
     setCategories([
@@ -1892,7 +1936,7 @@ export default function App() {
  <div
   style={{
     display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
     gap: 10,
     marginBottom: 16,
   }}
@@ -1905,12 +1949,7 @@ export default function App() {
   <MetricCard
     label="Баланс"
     value={`${rub(playerokStats.balance_total)} ₽`}
-    sub={`Доступно ${rub(playerokStats.balance_available)} ₽`}
-  />
-  <MetricCard
-    label="Холд"
-    value={`${rub(playerokStats.balance_frozen)} ₽`}
-    sub={`К выводу ${rub(playerokStats.balance_withdrawable)} ₽`}
+    sub={`К выводу ${rub(playerokStats.balance_available)} ₽`}
   />
   <MetricCard
     label="В ожидании"
@@ -1962,7 +2001,81 @@ export default function App() {
                   </div>
                 </div>
               </div>
+ <div className="card" style={{ marginBottom: 16 }}>
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 12,
+    }}
+  >
+    <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
+      Live покупки
+    </div>
+    <div style={{ fontSize: 11, color: "var(--text3)" }}>
+      {ordersLoading ? "обновляем..." : `${playerokOrders.length} записей`}
+    </div>
+  </div>
 
+  <div style={{ display: "grid", gap: 8 }}>
+    {playerokOrders.slice(0, 6).map((order) => (
+      <div
+        key={order.id}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.8fr 1fr .8fr .8fr .8fr",
+          gap: 10,
+          alignItems: "center",
+          padding: "10px 12px",
+          borderRadius: 12,
+          background: "rgba(168,85,247,.05)",
+          border: "1px solid rgba(168,85,247,.12)",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: "var(--text)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {order.item?.name || "Без названия"}
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--text3)", marginTop: 2 }}>
+            ID: {order.id}
+          </div>
+        </div>
+
+        <div style={{ fontSize: 12, color: "var(--text2)" }}>
+          {order.buyer?.username || "Покупатель"}
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>
+          {rub(order.price)} ₽
+        </div>
+
+        <div style={{ fontSize: 11, color: "var(--text3)" }}>
+          {toRuTime(order.created_at)}
+        </div>
+
+        <div>
+          <Badge status={order.status === "CONFIRMED" || order.status === "CONFIRMED_AUTOMATICALLY" ? "sold" : "open"} />
+        </div>
+      </div>
+    ))}
+
+    {!playerokOrders.length && (
+      <div style={{ color: "var(--text3)", fontSize: 12, padding: "8px 0" }}>
+        Пока нет данных по покупкам
+      </div>
+    )}
+  </div>
+ </div>
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
