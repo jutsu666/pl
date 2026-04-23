@@ -53,24 +53,6 @@ function extractChatUrl(order) {
   return order?.chat_url || order?.chatUrl || order?.buyer_chat_url || order?.buyerChatUrl || "";
 }
 
-function extractOrderItemId(order) {
-  const value = order?.item?.id || order?.item_id || order?.product_id || order?.lot_id || order?.offer_id || "";
-  return value === null || value === undefined ? "" : String(value).trim();
-}
-
-function extractSlugFromUrl(url) {
-  try {
-    const clean = String(url || "").trim();
-    if (!clean) return "";
-    const parsed = new URL(clean);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    return parts.length ? parts[parts.length - 1] : "";
-  } catch {
-    const parts = String(url || "").split("/").filter(Boolean);
-    return parts.length ? parts[parts.length - 1].split("?")[0] : "";
-  }
-}
-
 function normalizeTitle(v) {
   return String(v || "")
     .toLowerCase()
@@ -89,8 +71,28 @@ function isTodayDateLike(value) {
 }
 
 
+function extractPlayerokSlug(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw.startsWith("http") ? raw : `https://playerok.com/products/${raw}`);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const idx = parts.indexOf("products");
+    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+    return parts[parts.length - 1] || "";
+  } catch {
+    return raw.replace(/^\/+|\/+$/g, "").split("/").pop()?.split("?")[0] || "";
+  }
+}
+
+function getCommissionPercent(commType) {
+  const value = String(commType ?? "standard").toLowerCase();
+  if (["20", "20%", "premium", "high", "vip"].includes(value)) return 20;
+  return 10;
+}
+
 function calcProfit({ salePrice, buyUsd, playerokRate, commType }) {
-  const commRate = commType === "premium" ? 0.04 : 0.05;
+  const commRate = getCommissionPercent(commType) / 100;
   return salePrice - salePrice * commRate - buyUsd * (playerokRate || 88);
 }
 
@@ -579,7 +581,7 @@ function CalcPage({ products, playerokRate }) {
           <FI label="Цена продажи (₽)" type="number" value={sp} onChange={e => setSp(e.target.value)} placeholder="0" />
           <FI label="Закупка ($)" type="number" value={bu} onChange={e => setBu(e.target.value)} placeholder="0" />
           <FI label="Курс Playerok" type="number" value={pr} onChange={e => setPr(e.target.value)} />
-          <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "5% Standard" }, { value: "premium", label: "4% Premium" }]} />
+          <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "10%" }, { value: "premium", label: "20%" }]} />
           <FI label="Доля воркера (%)" type="number" value={ws} onChange={e => setWs(+e.target.value || 0)} placeholder="50" />
           <FI label="Поднятия (₽)" type="number" value={bm} onChange={e => setBm(+e.target.value || 0)} placeholder="0" />
         </div>
@@ -766,6 +768,7 @@ export default function App() {
     sync_ok: false,
   });
   const [playerokOrders, setPlayerokOrders] = useState([]);
+  const [playerokItems, setPlayerokItems] = useState([]);
   const [statsLoading, setStatsLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersModalOpen, setOrdersModalOpen] = useState(false);
@@ -818,6 +821,18 @@ export default function App() {
     }
   }, []);
 
+  const loadPlayerokItems = useCallback(async () => {
+    if (!BACKEND_URL) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/items`);
+      if (!res.ok) throw new Error("Не удалось загрузить items");
+      const data = await res.json();
+      setPlayerokItems(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      console.error("Ошибка загрузки Playerok items:", e);
+    }
+  }, []);
+
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -846,6 +861,13 @@ export default function App() {
     const t = setInterval(loadPlayerokOrders, 15000);
     return () => clearInterval(t);
   }, [loadPlayerokOrders]);
+
+  useEffect(() => {
+    if (!BACKEND_URL) return;
+    loadPlayerokItems();
+    const t = setInterval(loadPlayerokItems, 30000);
+    return () => clearInterval(t);
+  }, [loadPlayerokItems]);
 
   const loadData = async () => {
     if (!supabase) { loadDemo(); return; }
@@ -905,14 +927,33 @@ export default function App() {
     return meta.displayName || product?.name || "Без названия";
   }, [productMeta]);
 
+  const findItemByLotUrl = useCallback((lotUrl) => {
+    const slug = extractPlayerokSlug(lotUrl);
+    if (!slug) return null;
+    return playerokItems.find(item => extractPlayerokSlug(item?.url || item?.slug || item?.id) === slug) || null;
+  }, [playerokItems]);
+
   const matchOrderToProduct = useCallback((order) => {
+    const orderLotUrl = extractLotUrl(order);
+    const orderSlug = extractPlayerokSlug(orderLotUrl);
+
+    if (orderSlug) {
+      const direct = products.find(product => {
+        const meta = productMeta[product.id] || {};
+        const productSlug = extractPlayerokSlug(meta.lotUrl || product?.lot_url || "");
+        return productSlug && productSlug === orderSlug;
+      });
+      if (direct) return direct;
+    }
+
     const raw = normalizeTitle(order?.item?.name || order?.title || order?.item_name || order?.name || "");
     if (!raw) return null;
+
     let best = null;
     let bestLen = 0;
     for (const product of products) {
       const meta = productMeta[product.id] || {};
-      const variants = [meta.matchText, product.name].filter(Boolean);
+      const variants = [meta.matchText, meta.displayName, product.name].filter(Boolean);
       for (const variant of variants) {
         const norm = normalizeTitle(variant);
         if (!norm) continue;
@@ -928,27 +969,35 @@ export default function App() {
   const triggerLift = useCallback(async (product) => {
     const meta = productMeta[product.id] || {};
     const lotUrl = meta.lotUrl || product?.lot_url || "";
+    if (!lotUrl) {
+      showToast("У товара не заполнена ссылка Playerok", "err");
+      return;
+    }
     if (BACKEND_URL) {
       try {
         const res = await fetch(`${BACKEND_URL}/bump`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: product.id, lotUrl }),
+          body: JSON.stringify({ lotUrl }),
         });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          showToast(`Запрос на поднятие отправлен: ${getProductDisplayName(product)}`);
+          const pos = data?.priority_position ?? data?.priorityPosition;
+          if (pos !== undefined && pos !== null) {
+            saveProductMeta(product.id, { position: String(pos) });
+          }
+          showToast(`Поднятие выполнено: ${getProductDisplayName(product)}`);
+          loadPlayerokItems();
           return;
         }
+        showToast(data?.detail || "Не удалось поднять лот", "err");
+        return;
       } catch (e) {
         console.error("Ошибка поднятия:", e);
       }
     }
-    if (lotUrl) {
-      window.open(lotUrl, "_blank");
-      return;
-    }
-    showToast("Нет ссылки на лот или backend для поднятия", "err");
-  }, [productMeta, showToast, getProductDisplayName]);
+    window.open(lotUrl, "_blank");
+  }, [productMeta, showToast, getProductDisplayName, saveProductMeta, loadPlayerokItems]);
 
   const toggleAutoRelist = useCallback((productId) => {
     const current = !!(productMeta[productId]?.autoRelist);
@@ -1003,8 +1052,6 @@ export default function App() {
         statusLabel: statusKey === "sold" ? "Продано" : "Ожидание",
         lotUrl: extractLotUrl(order),
         chatUrl: extractChatUrl(order),
-        itemId: extractOrderItemId(order),
-        slug: String(order?.item?.slug || extractSlugFromUrl(extractLotUrl(order)) || "").trim(),
         isDone: DONE_ORDER_STATUSES.includes(order?.status),
       };
     })
@@ -1044,10 +1091,13 @@ export default function App() {
         salePrice: Number(product.sale_price_rub || 0),
         buyUsd: Number(product.purchase_usd || 0),
         playerokRate,
-        commType: product.commission_type,
+        commType: product.sale_commission ?? product.commission_type,
       }));
       const completedProfit = profitUnit * completedOrders.length;
       const pendingProfit = profitUnit * pendingOrders.length;
+      const lotUrl = meta.lotUrl || product.lot_url || completedOrders[0]?.lotUrl || pendingOrders[0]?.lotUrl || "";
+      const linkedItem = findItemByLotUrl(lotUrl);
+      const livePosition = linkedItem?.priority_position ?? linkedItem?.priorityPosition ?? linkedItem?.priority_position_in_search ?? null;
       return {
         product,
         meta,
@@ -1057,28 +1107,16 @@ export default function App() {
         profitUnit,
         completedQty: completedOrders.length,
         pendingQty: pendingOrders.length,
-        position: meta.position || product.position || "—",
+        position: livePosition ?? meta.position ?? product.position ?? "—",
         completedProfit,
         pendingProfit,
         autoRelist: !!meta.autoRelist,
-        lotUrl: meta.lotUrl || product.lot_url || completedOrders[0]?.lotUrl || pendingOrders[0]?.lotUrl || "",
+        lotUrl,
       };
     })
     .sort((a, b) => (b.completedQty - a.completedQty) || (b.pendingQty - a.pendingQty) || a.title.localeCompare(b.title));
 
 
-  useEffect(() => {
-    if (!liveOrders.length) return;
-    liveOrders.forEach(order => {
-      if (!order.product) return;
-      const current = productMeta[order.product.id] || {};
-      const patch = {};
-      if (!current.lotUrl && order.lotUrl) patch.lotUrl = order.lotUrl;
-      if (!current.itemId && order.itemId) patch.itemId = order.itemId;
-      if (!current.slug && order.slug) patch.slug = order.slug;
-      if (Object.keys(patch).length) saveProductMeta(order.product.id, patch);
-    });
-  }, [liveOrders, productMeta, saveProductMeta]);
 
   useEffect(() => {
     if (!BACKEND_URL || !liveOrders.length) return;
@@ -1565,9 +1603,17 @@ export default function App() {
         showToast("Категория добавлена"); closeM("addCategory");
       }} />
 
-      <AddProductModal open={!!modals.addProduct} onClose={() => closeM("addProduct")} categories={categories} onAdd={async p => {
-        if (supabase) { const { data } = await supabase.from("products").insert([p]).select("*, categories(name)").single(); setProducts(prev => [...prev, { ...data, category: data.categories?.name || "" }]); }
-        else setProducts(prev => [...prev, { ...p, id: Date.now(), category: categories.find(c => c.id == p.category_id)?.name || "" }]);
+      <AddProductModal open={!!modals.addProduct} onClose={() => closeM("addProduct")} categories={categories} onAdd={async (p, meta) => {
+        let createdId = null;
+        if (supabase) {
+          const { data } = await supabase.from("products").insert([p]).select("*, categories(name)").single();
+          createdId = data?.id;
+          setProducts(prev => [...prev, { ...data, category: data.categories?.name || "" }]);
+        } else {
+          createdId = Date.now();
+          setProducts(prev => [...prev, { ...p, id: createdId, category: categories.find(c => c.id == p.category_id)?.name || "" }]);
+        }
+        if (createdId && meta) saveProductMeta(createdId, meta);
         showToast("Товар добавлен"); closeM("addProduct");
       }} />
 
@@ -1688,16 +1734,48 @@ function AddProductModal({ open, onClose, categories, onAdd }) {
   const [price, setPrice] = useState("");
   const [buyUsd, setBuyUsd] = useState("");
   const [ct, setCt] = useState("standard");
+  const [playerokUrl, setPlayerokUrl] = useState("");
+  const [matchText, setMatchText] = useState("");
+  const [autoRelist, setAutoRelist] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setCatId("");
+    setPrice("");
+    setBuyUsd("");
+    setCt("standard");
+    setPlayerokUrl("");
+    setMatchText("");
+    setAutoRelist(true);
+  }, [open]);
+
   return (
     <Modal open={open} onClose={onClose} title="Добавить товар">
-      <FI label="Название" value={name} onChange={e => setName(e.target.value)} placeholder="Название товара" />
+      <FI label="Название товара (для сайта)" value={name} onChange={e => setName(e.target.value)} placeholder="ChatGPT | 1 месяц" />
+      <Field label="Ссылка на товар Playerok">
+        <input className="fi" value={playerokUrl} onChange={e => setPlayerokUrl(e.target.value)} placeholder="https://playerok.com/products/..." />
+      </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
         <FS label="Категория" value={catId} onChange={e => setCatId(e.target.value)} options={[{ value: "", label: "Без категории" }, ...categories.map(c => ({ value: c.id, label: c.name }))]} />
         <FI label="Цена продажи (₽)" type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="0" />
         <FI label="Закупка ($)" type="number" value={buyUsd} onChange={e => setBuyUsd(e.target.value)} placeholder="0" />
-        <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "5% Standard" }, { value: "premium", label: "4% Premium" }]} />
+        <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "10%" }, { value: "premium", label: "20%" }]} />
       </div>
-      <MFoot onClose={onClose} onSubmit={() => { if (!name || !price) return; onAdd({ name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status: "active" }); }} label="Добавить" />
+      <Field label="Текст для совпадения с Playerok (если надо)">
+        <input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="Можно оставить пустым" />
+      </Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text2)", fontSize: 12, marginTop: 6 }}>
+        <input type="checkbox" checked={autoRelist} onChange={e => setAutoRelist(e.target.checked)} />
+        Автоперевыставление
+      </label>
+      <MFoot onClose={onClose} onSubmit={() => {
+        if (!name || !price) return;
+        onAdd(
+          { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status: "active" },
+          { displayName: name, matchText: matchText || name, lotUrl: playerokUrl, autoRelist }
+        );
+      }} label="Добавить" />
     </Modal>
   );
 }
@@ -1712,9 +1790,6 @@ function EditProductModal({ open, onClose, product: p, categories, meta = {}, on
   const [displayName, setDisplayName] = useState(meta.displayName || p.name || "");
   const [matchText, setMatchText] = useState(meta.matchText || p.name || "");
   const [lotUrl, setLotUrl] = useState(meta.lotUrl || "");
-  const [itemId, setItemId] = useState(meta.itemId || "");
-  const [slug, setSlug] = useState(meta.slug || "");
-  const [priorityStatusId, setPriorityStatusId] = useState(meta.priorityStatusId || "");
   const [position, setPosition] = useState(meta.position || "");
   const [autoRelist, setAutoRelist] = useState(!!meta.autoRelist);
 
@@ -1728,9 +1803,6 @@ function EditProductModal({ open, onClose, product: p, categories, meta = {}, on
     setDisplayName(meta.displayName || p.name || "");
     setMatchText(meta.matchText || p.name || "");
     setLotUrl(meta.lotUrl || "");
-    setItemId(meta.itemId || "");
-    setSlug(meta.slug || "");
-    setPriorityStatusId(meta.priorityStatusId || "");
     setPosition(meta.position || "");
     setAutoRelist(!!meta.autoRelist);
   }, [p, meta]);
@@ -1742,26 +1814,21 @@ function EditProductModal({ open, onClose, product: p, categories, meta = {}, on
         <FS label="Категория" value={catId} onChange={e => setCatId(e.target.value)} options={[{ value: "", label: "Без категории" }, ...categories.map(c => ({ value: c.id, label: c.name }))]} />
         <FI label="Цена продажи (₽)" type="number" value={price} onChange={e => setPrice(e.target.value)} />
         <FI label="Закупка ($)" type="number" value={buyUsd} onChange={e => setBuyUsd(e.target.value)} />
-        <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "5% Standard" }, { value: "premium", label: "4% Premium" }]} />
+        <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "10%" }, { value: "premium", label: "20%" }]} />
         <FS label="Статус" value={status} onChange={e => setStatus(e.target.value)} options={[{ value: "active", label: "Активен" }, { value: "inactive", label: "Неактивен" }]} />
       </div>
-      <Field label="Короткое имя на сайте"><input className="fi" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Красивое короткое название" /></Field>
-      <Field label="Совпадение названия Playerok"><input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="По чему матчить длинный title" /></Field>
+      <Field label="Название товара (для сайта)"><input className="fi" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Красивое короткое название" /></Field>
+      <Field label="Текст для совпадения с названием Playerok"><input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="По чему матчить длинный title" /></Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI label="Ссылка на лот" value={lotUrl} onChange={e => setLotUrl(e.target.value)} placeholder="https://..." />
+        <FI label="Ссылка Playerok" value={lotUrl} onChange={e => setLotUrl(e.target.value)} placeholder="https://playerok.com/products/..." />
         <FI label="Позиция" value={position} onChange={e => setPosition(e.target.value)} placeholder="1" />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI label="Playerok itemId" value={itemId} onChange={e => setItemId(e.target.value)} placeholder="1f13..." />
-        <FI label="Playerok slug" value={slug} onChange={e => setSlug(e.target.value)} placeholder="xxxx-product-slug" />
-      </div>
-      <FI label="Priority status id" value={priorityStatusId} onChange={e => setPriorityStatusId(e.target.value)} placeholder="необязательно" />
       <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text2)", fontSize: 12, marginTop: 6 }}>
         <input type="checkbox" checked={autoRelist} onChange={e => setAutoRelist(e.target.checked)} />
         Автоперевыставление после покупки
       </label>
       <MFoot onClose={onClose} onSubmit={() => {
-        onSaveMeta?.(p.id, { displayName, matchText, lotUrl, itemId, slug, priorityStatusId, position, autoRelist });
+        onSaveMeta?.(p.id, { displayName, matchText, lotUrl, position, autoRelist });
         onSave(p.id, { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status });
       }} label="Сохранить" />
     </Modal>
