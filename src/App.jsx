@@ -53,6 +53,18 @@ function extractChatUrl(order) {
   return order?.chat_url || order?.chatUrl || order?.buyer_chat_url || order?.buyerChatUrl || "";
 }
 
+function extractSlugFromUrl(url) {
+  try {
+    const value = String(url || "").trim();
+    if (!value) return "";
+    const clean = value.split("?")[0].replace(/\/+$/, "");
+    const parts = clean.split("/").filter(Boolean);
+    return parts[parts.length - 1] || "";
+  } catch {
+    return "";
+  }
+}
+
 function normalizeTitle(v) {
   return String(v || "")
     .toLowerCase()
@@ -910,17 +922,33 @@ export default function App() {
   const triggerLift = useCallback(async (product) => {
     const meta = productMeta[product.id] || {};
     const lotUrl = meta.lotUrl || product?.lot_url || "";
+    const slug = meta.slug || extractSlugFromUrl(lotUrl);
+    const itemId = meta.itemId || product?.item_id || "";
     if (BACKEND_URL) {
       try {
+        const payload = {};
+        if (itemId) payload.itemId = String(itemId);
+        if (slug) payload.slug = String(slug);
+        if (lotUrl) payload.lotUrl = String(lotUrl);
+        if (meta.priorityStatusId) payload.priorityStatusId = String(meta.priorityStatusId);
+
         const res = await fetch(`${BACKEND_URL}/bump`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: product.id, lotUrl }),
+          body: JSON.stringify(payload),
         });
+
         if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.lot_url) saveProductMeta(product.id, { lotUrl: data.lot_url });
+          if (data?.slug) saveProductMeta(product.id, { slug: data.slug });
+          if (data?.item_id) saveProductMeta(product.id, { itemId: data.item_id });
           showToast(`Запрос на поднятие отправлен: ${getProductDisplayName(product)}`);
           return;
         }
+
+        const errText = await res.text().catch(() => "");
+        console.error("Ошибка поднятия, ответ сервера:", errText);
       } catch (e) {
         console.error("Ошибка поднятия:", e);
       }
@@ -930,7 +958,7 @@ export default function App() {
       return;
     }
     showToast("Нет ссылки на лот или backend для поднятия", "err");
-  }, [productMeta, showToast, getProductDisplayName]);
+  }, [productMeta, showToast, getProductDisplayName, saveProductMeta]);
 
   const toggleAutoRelist = useCallback((productId) => {
     const current = !!(productMeta[productId]?.autoRelist);
@@ -1056,13 +1084,18 @@ export default function App() {
       relistSeenRef.current[order.id] = true;
       if (!meta.autoRelist) return;
       try {
+        const lotUrl = meta.lotUrl || order.lotUrl || "";
+        const slug = meta.slug || extractSlugFromUrl(lotUrl);
+        const itemId = meta.itemId || order.product?.item_id || "";
         await fetch(`${BACKEND_URL}/relist`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            orderId: order.id,
-            productId: order.product.id,
-            lotUrl: meta.lotUrl || order.lotUrl || "",
+            orderId: String(order.id || ""),
+            ...(itemId ? { itemId: String(itemId) } : {}),
+            ...(slug ? { slug: String(slug) } : {}),
+            ...(lotUrl ? { lotUrl: String(lotUrl) } : {}),
+            ...(meta.priorityStatusId ? { priorityStatusId: String(meta.priorityStatusId) } : {}),
           }),
         });
       } catch (e) {
