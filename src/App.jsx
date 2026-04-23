@@ -1588,6 +1588,7 @@ export default function App() {
   const [workerShares, setWorkerShares] = useState(() => ls(LS.workerShares, {}));
   const [dailyCounts, setDailyCounts] = useState(() => ls(LS.dailyCounts, {}));
   const [workDays, setWorkDays] = useState(() => ls(LS.workDays, []));
+  const [cloudLoaded, setCloudLoaded] = useState(false);
   const [ordersModalOpen, setOrdersModalOpen] = useState(false);
   const [selectedWorkDayId, setSelectedWorkDayId] = useState(null);
 
@@ -1626,6 +1627,53 @@ export default function App() {
 
   const openM = (name) => setModals((m) => ({ ...m, [name]: true }));
   const closeM = (name) => setModals((m) => ({ ...m, [name]: false }));
+
+  const loadCloudState = useCallback(async (userId) => {
+  if (!supabase || !userId) return;
+
+  const { data, error } = await supabase
+    .from("app_state")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+
+  if (error) {
+    console.log("app_state пока пустая или не найдена", error.message);
+    return;
+  }
+
+  if (data) {
+    setWorkDays(data.work_days || []);
+    setDailyCounts(data.daily_counts || {});
+    setWorkerShares(data.worker_shares || {});
+    setGR(data.google_rate ?? 91.4);
+    setPR(data.playerok_rate ?? 88.0);
+    setSelectedWorkDayId(data.selected_work_day_id || null);
+  }
+}, []);
+
+const saveCloudState = useCallback(async (nextState) => {
+  if (!supabase || !auth?.user?.id) return;
+
+  const payload = {
+    user_id: auth.user.id,
+    work_days: nextState.workDays,
+    daily_counts: nextState.dailyCounts,
+    worker_shares: nextState.workerShares,
+    google_rate: nextState.googleRate,
+    playerok_rate: nextState.playerokRate,
+    selected_work_day_id: nextState.selectedWorkDayId,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("app_state")
+    .upsert(payload, { onConflict: "user_id" });
+
+  if (error) {
+    console.error("Ошибка сохранения app_state:", error);
+  }
+}, [auth]);
 
   const loadPlayerokStats = useCallback(async () => {
   if (!BACKEND_URL) return;
@@ -1683,7 +1731,31 @@ export default function App() {
   useEffect(() => {
     if (auth) loadData();
   }, [auth]);
+
   useEffect(() => {
+  if (!auth?.user?.id || !supabase || !cloudLoaded) return;
+
+  saveCloudState({
+    workDays,
+    dailyCounts,
+    workerShares,
+    googleRate,
+    playerokRate,
+    selectedWorkDayId,
+  });
+}, [
+  auth?.user?.id,
+  cloudLoaded,
+  workDays,
+  dailyCounts,
+  workerShares,
+  googleRate,
+  playerokRate,
+  selectedWorkDayId,
+  saveCloudState,
+]);
+
+useEffect(() => {
   if (!BACKEND_URL) return;
 
   loadPlayerokStats();
@@ -1693,8 +1765,8 @@ export default function App() {
   }, 30000);
 
   return () => clearInterval(timer);
- }, [loadPlayerokStats]);
- 
+}, [loadPlayerokStats]);
+
  useEffect(() => {
   if (!BACKEND_URL) return;
 
@@ -1755,27 +1827,35 @@ export default function App() {
     } else {
       setSelectedWorkDayId(demoDays[0]?.id || null);
     }
+    
+    setCloudLoaded(true);
+
   };
 
   const loadData = async () => {
-    if (!supabase) {
-      loadDemo();
-      return;
-    }
+  if (!supabase) {
+    loadDemo();
+    return;
+  }
 
-    const isAdmin = auth?.role === "admin";
+  setCloudLoaded(false);
 
-    const [cats, prods, wks] = await Promise.all([
-      supabase.from("categories").select("*").order("name"),
-      supabase.from("products").select("*, categories(name)").order("name"),
-      isAdmin ? supabase.from("worker_keys").select("*") : Promise.resolve({ data: [] }),
-    ]);
+  const isAdmin = auth?.role === "admin";
 
-    setCategories(cats.data || []);
-    setProducts((prods.data || []).map((p) => ({ ...p, category: p.categories?.name || "" })));
-    setWorkers(wks.data || []);
-    setSelectedWorkDayId((prev) => prev ?? ls(LS.workDays, [])[0]?.id ?? null);
-  };
+  const [cats, prods, wks] = await Promise.all([
+    supabase.from("categories").select("*").order("name"),
+    supabase.from("products").select("*, categories(name)").order("name"),
+    isAdmin ? supabase.from("worker_keys").select("*") : Promise.resolve({ data: [] }),
+  ]);
+
+  setCategories(cats.data || []);
+  setProducts((prods.data || []).map((p) => ({ ...p, category: p.categories?.name || "" })));
+  setWorkers(wks.data || []);
+
+  await loadCloudState(auth.user.id);
+  setCloudLoaded(true);
+
+};
 
   const getWorkDayStats = useCallback((day) => {
     if (!day) return { qty: 0, revenue: 0, listing: 0, bumps: 0, gross: 0, net: 0 };
