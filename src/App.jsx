@@ -22,11 +22,43 @@ const fmtF = (n, d = 2) => Number(n).toFixed(d);
 const todayStr = () => new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
-const toRuTime = (iso) => {
+const toSafeDate = (value) => {
   try {
-    return new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    if (typeof value === "number") {
+      const ms = value > 1e12 ? value : value * 1000;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const direct = new Date(raw);
+    if (!Number.isNaN(direct.getTime())) return direct;
+    if (/^\d+$/.test(raw)) {
+      const num = Number(raw);
+      const d = new Date(num > 1e12 ? num : num * 1000);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    const patched = new Date(raw.replace(" ", "T") + (raw.includes("T") || raw.endsWith("Z") || /[+-]\d\d:?\d\d$/.test(raw) ? "" : "Z"));
+    return Number.isNaN(patched.getTime()) ? null : patched;
   } catch {
-    return "";
+    return null;
+  }
+};
+
+const toRuTime = (value) => {
+  try {
+    const d = toSafeDate(value);
+    if (!d) return "—";
+    return new Intl.DateTimeFormat("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "Europe/Moscow",
+    }).format(d);
+  } catch {
+    return "—";
   }
 };
 
@@ -53,6 +85,18 @@ function extractChatUrl(order) {
   return order?.chat_url || order?.chatUrl || order?.buyer_chat_url || order?.buyerChatUrl || "";
 }
 
+function extractSlugFromUrl(url) {
+  try {
+    const value = String(url || "").trim();
+    if (!value) return "";
+    const clean = value.split("?")[0].replace(/\/+$/, "");
+    const parts = clean.split("/").filter(Boolean);
+    return parts[parts.length - 1] || "";
+  } catch {
+    return "";
+  }
+}
+
 function normalizeTitle(v) {
   return String(v || "")
     .toLowerCase()
@@ -71,29 +115,14 @@ function isTodayDateLike(value) {
 }
 
 
-function extractPlayerokSlug(url) {
-  const raw = String(url || "").trim();
-  if (!raw) return "";
-  try {
-    const parsed = new URL(raw.startsWith("http") ? raw : `https://playerok.com/products/${raw}`);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const idx = parts.indexOf("products");
-    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
-    return parts[parts.length - 1] || "";
-  } catch {
-    return raw.replace(/^\/+|\/+$/g, "").split("/").pop()?.split("?")[0] || "";
-  }
-}
-
-function getCommissionPercent(commType) {
-  const value = String(commType ?? "standard").toLowerCase();
-  if (["20", "20%", "premium", "high", "vip"].includes(value)) return 20;
+function resolveCommissionPercent(value) {
+  if (value === 20 || value === "20" || value === "premium") return 20;
   return 10;
 }
 
-function calcProfit({ salePrice, buyUsd, playerokRate, commType }) {
-  const commRate = getCommissionPercent(commType) / 100;
-  return salePrice - salePrice * commRate - buyUsd * (playerokRate || 88);
+function calcProfit({ salePrice, buyUsd, playerokRate, commType, saleCommission }) {
+  const percent = resolveCommissionPercent(saleCommission ?? commType);
+  return Number(salePrice || 0) - (Number(salePrice || 0) * percent) / 100 - Number(buyUsd || 0) * (playerokRate || 88);
 }
 
 const P = {
@@ -671,7 +700,7 @@ function CatalogPage({ products, setProducts, categories, setCategories, playero
               </div>
               <div style={{ fontSize: 11, color: "#a78bfa", background: "rgba(124,92,252,.08)", display: "inline-block", padding: "2px 7px", borderRadius: 5, marginBottom: 9 }}>{p.category || "Без категории"}</div>
               <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text)" }}>{fmt(p.sale_price_rub)} ₽</div>
-              <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Закуп: ${fmtF(p.purchase_usd)} · {p.commission_type === "premium" ? "4%" : "5%"}</div>
+              <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Закуп: ${fmtF(p.purchase_usd)} · {p.commission_type === "premium" ? "20%" : "10%"}</div>
               <div style={{ fontSize: 12, fontWeight: 700, color: profit >= 0 ? "var(--success)" : "var(--danger)", marginTop: 5 }}>{profit >= 0 ? "+" : ""}{fmt(profit)} ₽ / ед</div>
               <div style={{ marginTop: 9 }}><Badge status={p.status || "active"} /></div>
             </div>
@@ -771,6 +800,7 @@ export default function App() {
   const [playerokItems, setPlayerokItems] = useState([]);
   const [statsLoading, setStatsLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [itemsLoading, setItemsLoading] = useState(false);
   const [ordersModalOpen, setOrdersModalOpen] = useState(false);
   const relistSeenRef = useRef({});
   const [modals, setModals] = useState({});
@@ -824,12 +854,15 @@ export default function App() {
   const loadPlayerokItems = useCallback(async () => {
     if (!BACKEND_URL) return;
     try {
+      setItemsLoading(true);
       const res = await fetch(`${BACKEND_URL}/items`);
       if (!res.ok) throw new Error("Не удалось загрузить items");
       const data = await res.json();
       setPlayerokItems(Array.isArray(data?.items) ? data.items : []);
     } catch (e) {
       console.error("Ошибка загрузки Playerok items:", e);
+    } finally {
+      setItemsLoading(false);
     }
   }, []);
 
@@ -927,76 +960,102 @@ export default function App() {
     return meta.displayName || product?.name || "Без названия";
   }, [productMeta]);
 
-  const findItemByLotUrl = useCallback((lotUrl) => {
-    const slug = extractPlayerokSlug(lotUrl);
-    if (!slug) return null;
-    return playerokItems.find(item => extractPlayerokSlug(item?.url || item?.slug || item?.id) === slug) || null;
-  }, [playerokItems]);
+  const getLinkedPlayerokItem = useCallback((product) => {
+    if (!product) return null;
+    const meta = productMeta[product.id] || {};
+    const slugCandidates = [
+      meta.slug,
+      extractSlugFromUrl(meta.lotUrl),
+      extractSlugFromUrl(product?.lot_url),
+    ].filter(Boolean).map(String);
+    const idCandidates = [meta.itemId, product?.item_id].filter(Boolean).map(v => String(v));
+    return playerokItems.find(item => (
+      (item?.id && idCandidates.includes(String(item.id))) ||
+      (item?.slug && slugCandidates.includes(String(item.slug)))
+    )) || null;
+  }, [playerokItems, productMeta]);
 
   const matchOrderToProduct = useCallback((order) => {
-    const orderLotUrl = extractLotUrl(order);
-    const orderSlug = extractPlayerokSlug(orderLotUrl);
-
-    if (orderSlug) {
-      const direct = products.find(product => {
-        const meta = productMeta[product.id] || {};
-        const productSlug = extractPlayerokSlug(meta.lotUrl || product?.lot_url || "");
-        return productSlug && productSlug === orderSlug;
-      });
-      if (direct) return direct;
-    }
-
     const raw = normalizeTitle(order?.item?.name || order?.title || order?.item_name || order?.name || "");
-    if (!raw) return null;
-
+    const orderSlug = extractSlugFromUrl(extractLotUrl(order) || order?.item?.url || order?.item?.public_url || order?.item?.slug || "");
+    const orderItemId = String(order?.item?.id || order?.item_id || "");
+    const orderPrice = Number(getOrderPrice(order) || 0);
     let best = null;
-    let bestLen = 0;
+    let bestScore = -1;
+
     for (const product of products) {
       const meta = productMeta[product.id] || {};
+      const productSlug = meta.slug || extractSlugFromUrl(meta.lotUrl || product?.lot_url || "");
+      const productItemId = String(meta.itemId || product?.item_id || "");
+      const productPrice = Number(product?.sale_price_rub || 0);
+      let score = 0;
+
+      if (orderItemId && productItemId && orderItemId === productItemId) score += 100000;
+      if (orderSlug && productSlug && orderSlug === productSlug) score += 90000;
+
       const variants = [meta.matchText, meta.displayName, product.name].filter(Boolean);
       for (const variant of variants) {
         const norm = normalizeTitle(variant);
-        if (!norm) continue;
-        if (raw.includes(norm) && norm.length > bestLen) {
-          best = product;
-          bestLen = norm.length;
-        }
+        if (!norm || !raw) continue;
+        if (raw === norm) score = Math.max(score, 60000 + norm.length * 100);
+        else if (raw.includes(norm) || norm.includes(raw)) score = Math.max(score, 30000 + norm.length * 100);
+      }
+
+      if (orderPrice > 0 && productPrice > 0) {
+        const diff = Math.abs(orderPrice - productPrice);
+        score += Math.max(0, 8000 - diff * 20);
+        if (diff === 0) score += 8000;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = product;
       }
     }
-    return best;
+
+    return bestScore > 0 ? best : null;
   }, [products, productMeta]);
 
   const triggerLift = useCallback(async (product) => {
     const meta = productMeta[product.id] || {};
     const lotUrl = meta.lotUrl || product?.lot_url || "";
-    if (!lotUrl) {
-      showToast("У товара не заполнена ссылка Playerok", "err");
-      return;
-    }
+    const slug = meta.slug || extractSlugFromUrl(lotUrl);
+    const itemId = meta.itemId || product?.item_id || "";
     if (BACKEND_URL) {
       try {
+        const payload = {};
+        if (itemId) payload.itemId = String(itemId);
+        if (slug) payload.slug = String(slug);
+        if (lotUrl) payload.lotUrl = String(lotUrl);
+        if (meta.priorityStatusId) payload.priorityStatusId = String(meta.priorityStatusId);
+
         const res = await fetch(`${BACKEND_URL}/bump`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lotUrl }),
+          body: JSON.stringify(payload),
         });
-        const data = await res.json().catch(() => ({}));
+
         if (res.ok) {
-          const pos = data?.priority_position ?? data?.priorityPosition;
-          if (pos !== undefined && pos !== null) {
-            saveProductMeta(product.id, { position: String(pos) });
-          }
-          showToast(`Поднятие выполнено: ${getProductDisplayName(product)}`);
-          loadPlayerokItems();
+          const data = await res.json().catch(() => null);
+          if (data?.lot_url) saveProductMeta(product.id, { lotUrl: data.lot_url });
+          if (data?.slug) saveProductMeta(product.id, { slug: data.slug });
+          if (data?.item_id) saveProductMeta(product.id, { itemId: data.item_id });
+          await loadPlayerokItems();
+          showToast(`Запрос на поднятие отправлен: ${getProductDisplayName(product)}`);
           return;
         }
-        showToast(data?.detail || "Не удалось поднять лот", "err");
-        return;
+
+        const errText = await res.text().catch(() => "");
+        console.error("Ошибка поднятия, ответ сервера:", errText);
       } catch (e) {
         console.error("Ошибка поднятия:", e);
       }
     }
-    window.open(lotUrl, "_blank");
+    if (lotUrl) {
+      window.open(lotUrl, "_blank");
+      return;
+    }
+    showToast("Нет ссылки на лот или backend для поднятия", "err");
   }, [productMeta, showToast, getProductDisplayName, saveProductMeta, loadPlayerokItems]);
 
   const toggleAutoRelist = useCallback((productId) => {
@@ -1041,21 +1100,32 @@ export default function App() {
     .map(order => {
       const createdAt = getOrderCreatedAt(order);
       const product = matchOrderToProduct(order);
+      const linkedItem = product ? getLinkedPlayerokItem(product) : null;
       const statusKey = getOrderUiStatus(order);
+      const salePrice = Number(getOrderPrice(order) || product?.sale_price_rub || 0);
       return {
         ...order,
         product,
+        linkedItem,
         createdAt,
         time: toRuTime(createdAt),
-        title: order?.item?.name || order?.title || order?.item_name || "Без названия",
+        salePrice,
+        title: order?.item?.name || order?.title || order?.item_name || product?.name || "Без названия",
         statusKey,
         statusLabel: statusKey === "sold" ? "Продано" : "Ожидание",
-        lotUrl: extractLotUrl(order),
+        lotUrl: extractLotUrl(order) || linkedItem?.url || "",
         chatUrl: extractChatUrl(order),
+        preferredLink: extractChatUrl(order) || extractLotUrl(order) || linkedItem?.url || "",
+        preferredLinkLabel: extractChatUrl(order) ? "Чат" : (extractLotUrl(order) || linkedItem?.url ? "Лот" : ""),
+        itemPosition: order?.item?.priority_position ?? linkedItem?.priority_position ?? null,
         isDone: DONE_ORDER_STATUSES.includes(order?.status),
       };
     })
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    .sort((a, b) => {
+      const ad = toSafeDate(a.createdAt)?.getTime() || 0;
+      const bd = toSafeDate(b.createdAt)?.getTime() || 0;
+      return bd - ad;
+    });
 
   const recentOrders = liveOrders.slice(0, 5);
   const todayLiveOrders = liveOrders.filter(order => isTodayDateLike(order.createdAt));
@@ -1064,12 +1134,12 @@ export default function App() {
 
   const parsedTodayProfit = completedTodayOrders.reduce((sum, order) => {
     if (!order.product) return sum;
-    const salePrice = getOrderPrice(order) || Number(order.product.sale_price_rub || 0);
     return sum + Math.round(calcProfit({
-      salePrice,
+      salePrice: Number(order.salePrice || order.product.sale_price_rub || 0),
       buyUsd: Number(order.product.purchase_usd || 0),
       playerokRate,
       commType: order.product.commission_type,
+      saleCommission: order.product.sale_commission,
     }));
   }, 0);
 
@@ -1084,6 +1154,7 @@ export default function App() {
     .filter(p => p.status === "active")
     .map(product => {
       const meta = productMeta[product.id] || {};
+      const linkedItem = getLinkedPlayerokItem(product);
       const productOrders = liveOrders.filter(order => order.product?.id === product.id);
       const completedOrders = productOrders.filter(order => order.isDone);
       const pendingOrders = productOrders.filter(order => !order.isDone);
@@ -1091,31 +1162,41 @@ export default function App() {
         salePrice: Number(product.sale_price_rub || 0),
         buyUsd: Number(product.purchase_usd || 0),
         playerokRate,
-        commType: product.sale_commission ?? product.commission_type,
+        commType: product.commission_type,
+        saleCommission: product.sale_commission,
       }));
-      const completedProfit = profitUnit * completedOrders.length;
-      const pendingProfit = profitUnit * pendingOrders.length;
-      const lotUrl = meta.lotUrl || product.lot_url || completedOrders[0]?.lotUrl || pendingOrders[0]?.lotUrl || "";
-      const linkedItem = findItemByLotUrl(lotUrl);
-      const livePosition = linkedItem?.priority_position ?? linkedItem?.priorityPosition ?? linkedItem?.priority_position_in_search ?? null;
+      const completedProfit = completedOrders.reduce((sum, order) => sum + Math.round(calcProfit({
+        salePrice: Number(order.salePrice || product.sale_price_rub || 0),
+        buyUsd: Number(product.purchase_usd || 0),
+        playerokRate,
+        commType: product.commission_type,
+        saleCommission: product.sale_commission,
+      })), 0);
+      const pendingProfit = pendingOrders.reduce((sum, order) => sum + Math.round(calcProfit({
+        salePrice: Number(order.salePrice || product.sale_price_rub || 0),
+        buyUsd: Number(product.purchase_usd || 0),
+        playerokRate,
+        commType: product.commission_type,
+        saleCommission: product.sale_commission,
+      })), 0);
       return {
         product,
         meta,
+        linkedItem,
         title: getProductDisplayName(product),
         category: product.category || "—",
         price: Number(product.sale_price_rub || 0),
         profitUnit,
         completedQty: completedOrders.length,
         pendingQty: pendingOrders.length,
-        position: livePosition ?? meta.position ?? product.position ?? "—",
+        position: linkedItem?.priority_position ?? productOrders.find(order => order.itemPosition != null)?.itemPosition ?? "—",
         completedProfit,
         pendingProfit,
         autoRelist: !!meta.autoRelist,
-        lotUrl,
+        lotUrl: meta.lotUrl || product.lot_url || linkedItem?.url || completedOrders[0]?.lotUrl || pendingOrders[0]?.lotUrl || "",
       };
     })
     .sort((a, b) => (b.completedQty - a.completedQty) || (b.pendingQty - a.pendingQty) || a.title.localeCompare(b.title));
-
 
 
   useEffect(() => {
@@ -1127,20 +1208,26 @@ export default function App() {
       relistSeenRef.current[order.id] = true;
       if (!meta.autoRelist) return;
       try {
+        const linkedItem = getLinkedPlayerokItem(order.product);
+        const lotUrl = meta.lotUrl || order.lotUrl || linkedItem?.url || "";
+        const slug = meta.slug || linkedItem?.slug || extractSlugFromUrl(lotUrl);
+        const itemId = meta.itemId || order.product?.item_id || linkedItem?.id || "";
         await fetch(`${BACKEND_URL}/relist`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            orderId: order.id,
-            productId: order.product.id,
-            lotUrl: meta.lotUrl || order.lotUrl || "",
+            orderId: String(order.id || ""),
+            ...(itemId ? { itemId: String(itemId) } : {}),
+            ...(slug ? { slug: String(slug) } : {}),
+            ...(lotUrl ? { lotUrl: String(lotUrl) } : {}),
+            ...(meta.priorityStatusId ? { priorityStatusId: String(meta.priorityStatusId) } : {}),
           }),
         });
       } catch (e) {
         console.error("Ошибка автоперевыставления:", e);
       }
     });
-  }, [liveOrders, productMeta]);
+  }, [liveOrders, productMeta, getLinkedPlayerokItem]);
 
   const closeSheet = async id => {
     const snap = getSheetProfit(id);
@@ -1314,47 +1401,49 @@ export default function App() {
                 className="dashboard-main-grid"
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1.15fr 1fr 1.9fr",
+                  gridTemplateColumns: "0.95fr 2.05fr",
                   gap: 12,
                   alignItems: "stretch",
                 }}
               >
-                <div className="card" style={{ padding: "14px 16px", minHeight: 286, background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Профит по дням</div>
-                    <div style={{ fontSize: 11, color: "#b5c0e5", padding: "6px 10px", borderRadius: 9, background: "#10172a", border: "1px solid rgba(99,102,241,.18)" }}>7 дней</div>
-                  </div>
-                  <DashboardLineChart data={chartData} />
-                </div>
-
-                <div className="card" style={{ padding: "14px 16px", minHeight: 286, display: "flex", flexDirection: "column", background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Live покупки</div>
-                      <span style={{ fontSize: 9, fontWeight: 800, color: "#7ef7a1", background: "rgba(34,197,94,.15)", border: "1px solid rgba(34,197,94,.22)", borderRadius: 999, padding: "2px 6px", letterSpacing: ".04em" }}>LIVE</span>
+                <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: 12, minHeight: 620 }}>
+                  <div className="card" style={{ padding: "14px 16px", minHeight: 0, background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Профит по дням</div>
+                      <div style={{ fontSize: 11, color: "#b5c0e5", padding: "6px 10px", borderRadius: 9, background: "#10172a", border: "1px solid rgba(99,102,241,.18)" }}>7 дней</div>
                     </div>
-                    <button className="btn-g" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => setOrdersModalOpen(true)}>Открыть</button>
+                    <DashboardLineChart data={chartData} />
                   </div>
 
-                  <div style={{ display: "grid", gap: 8, overflowY: "auto", paddingRight: 2, flex: 1 }}>
-                    {recentOrders.map(order => (
-                      <div key={order.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,.02)", border: "1px solid rgba(96,165,250,.08)" }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#eff4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{order.title}</div>
-                          <div style={{ fontSize: 11, color: "#94a3c4", marginTop: 2 }}>{order.time || "—"}</div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 10.5, fontWeight: 700, color: order.statusKey === "sold" ? "#67e28b" : "#fbbf24", marginBottom: 4 }}>{order.statusLabel}</div>
-                          {order.lotUrl ? <a href={order.lotUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#9fb4ff", textDecoration: "none" }}>Лот</a> : <span style={{ fontSize: 11, color: "#7f89a9" }}>без ссылки</span>}
-                        </div>
+                  <div className="card" style={{ padding: "14px 16px", minHeight: 0, display: "flex", flexDirection: "column", background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Live покупки</div>
+                        <span style={{ fontSize: 9, fontWeight: 800, color: "#7ef7a1", background: "rgba(34,197,94,.15)", border: "1px solid rgba(34,197,94,.22)", borderRadius: 999, padding: "2px 6px", letterSpacing: ".04em" }}>LIVE</span>
                       </div>
-                    ))}
+                      <button className="btn-g" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => setOrdersModalOpen(true)}>Открыть</button>
+                    </div>
 
-                    {!recentOrders.length && <div style={{ color: "#6f7a99", fontSize: 12 }}>{ordersLoading ? "Загрузка..." : "Пока нет данных"}</div>}
+                    <div style={{ display: "grid", gap: 8, overflowY: "auto", paddingRight: 2, flex: 1 }}>
+                      {recentOrders.map(order => (
+                        <div key={order.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,.02)", border: "1px solid rgba(96,165,250,.08)" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#eff4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={order.title}>{order.title}</div>
+                            <div style={{ fontSize: 11, color: "#94a3c4", marginTop: 3 }}>{rub(order.salePrice)} ₽ · {order.time || "—"}</div>
+                          </div>
+                          <div style={{ textAlign: "right", display: "grid", gap: 4 }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: order.statusKey === "sold" ? "#67e28b" : "#fbbf24" }}>{order.statusLabel}</div>
+                            {order.preferredLink ? <a href={order.preferredLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#9fb4ff", textDecoration: "none" }}>{order.chatUrl ? "Чат" : "Лот"}</a> : <span style={{ fontSize: 11, color: "#7f89a9" }}>без ссылки</span>}
+                          </div>
+                        </div>
+                      ))}
+
+                      {!recentOrders.length && <div style={{ color: "#6f7a99", fontSize: 12 }}>{ordersLoading ? "Загрузка..." : "Пока нет данных"}</div>}
+                    </div>
                   </div>
                 </div>
 
-                <div className="card" style={{ padding: 0, overflow: "hidden", minHeight: 286, background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
+                <div className="card" style={{ padding: 0, overflow: "hidden", minHeight: 620, background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
                   <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(96,165,250,.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Торговая таблица · {todayStr()}</span>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -1373,7 +1462,7 @@ export default function App() {
                         <tr><th>Лот</th><th>Категория</th><th>Цена</th><th>Профит</th><th>Кол-во</th><th>Позиция</th><th>В ожидании</th><th>Итог</th></tr>
                       </thead>
                       <tbody>
-                        {tableRows.slice(0, 8).map(row => (
+                        {tableRows.map(row => (
                           <tr key={row.product.id} className="tr">
                             <td style={{ fontWeight: 700, color: "#eef3ff", fontSize: 13, maxWidth: 180 }}>
                               <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={row.title}>{row.title}</div>
@@ -1604,16 +1693,16 @@ export default function App() {
       }} />
 
       <AddProductModal open={!!modals.addProduct} onClose={() => closeM("addProduct")} categories={categories} onAdd={async (p, meta) => {
-        let createdId = null;
         if (supabase) {
           const { data } = await supabase.from("products").insert([p]).select("*, categories(name)").single();
-          createdId = data?.id;
           setProducts(prev => [...prev, { ...data, category: data.categories?.name || "" }]);
+          if (data?.id && meta) saveProductMeta(data.id, meta);
         } else {
-          createdId = Date.now();
-          setProducts(prev => [...prev, { ...p, id: createdId, category: categories.find(c => c.id == p.category_id)?.name || "" }]);
+          const newId = Date.now();
+          setProducts(prev => [...prev, { ...p, id: newId, category: categories.find(c => c.id == p.category_id)?.name || "" }]);
+          if (meta) saveProductMeta(newId, meta);
         }
-        if (createdId && meta) saveProductMeta(createdId, meta);
+        await loadPlayerokItems();
         showToast("Товар добавлен"); closeM("addProduct");
       }} />
 
@@ -1645,9 +1734,9 @@ function OrdersModal({ open, onClose, orders, loading }) {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{order.title}</div>
                 <div style={{ display: "grid", gap: 4, fontSize: 11, color: "var(--text3)" }}>
+                  <div>Цена покупки: {rub(order.salePrice)} ₽</div>
                   <div>Время покупки: {order.time || "—"}</div>
-                  <div>Ссылка на лот: {order.lotUrl ? <a href={order.lotUrl} target="_blank" rel="noreferrer" style={{ color: "#9fb4ff", textDecoration: "none" }}>{order.lotUrl}</a> : "нет ссылки"}</div>
-                  {order.chatUrl && <div>Чат: <a href={order.chatUrl} target="_blank" rel="noreferrer" style={{ color: "#9fb4ff", textDecoration: "none" }}>открыть</a></div>}
+                  <div>{order.chatUrl ? "Чат" : "Ссылка на лот"}: {(order.chatUrl || order.lotUrl) ? <a href={order.chatUrl || order.lotUrl} target="_blank" rel="noreferrer" style={{ color: "#9fb4ff", textDecoration: "none" }}>{order.chatUrl ? "открыть чат" : (order.lotUrl || "открыть лот")}</a> : "нет ссылки"}</div>
                 </div>
               </div>
               <div><Badge status={order.statusKey} /></div>
@@ -1734,46 +1823,24 @@ function AddProductModal({ open, onClose, categories, onAdd }) {
   const [price, setPrice] = useState("");
   const [buyUsd, setBuyUsd] = useState("");
   const [ct, setCt] = useState("standard");
-  const [playerokUrl, setPlayerokUrl] = useState("");
+  const [lotUrl, setLotUrl] = useState("");
   const [matchText, setMatchText] = useState("");
-  const [autoRelist, setAutoRelist] = useState(true);
-
-  useEffect(() => {
-    if (!open) return;
-    setName("");
-    setCatId("");
-    setPrice("");
-    setBuyUsd("");
-    setCt("standard");
-    setPlayerokUrl("");
-    setMatchText("");
-    setAutoRelist(true);
-  }, [open]);
-
   return (
     <Modal open={open} onClose={onClose} title="Добавить товар">
-      <FI label="Название товара (для сайта)" value={name} onChange={e => setName(e.target.value)} placeholder="ChatGPT | 1 месяц" />
-      <Field label="Ссылка на товар Playerok">
-        <input className="fi" value={playerokUrl} onChange={e => setPlayerokUrl(e.target.value)} placeholder="https://playerok.com/products/..." />
-      </Field>
+      <FI label="Название товара (для сайта)" value={name} onChange={e => setName(e.target.value)} placeholder="Название товара" />
+      <Field label="Ссылка на товар Playerok"><input className="fi" value={lotUrl} onChange={e => setLotUrl(e.target.value)} placeholder="https://playerok.com/products/..." /></Field>
+      <Field label="Текст для совпадения с Playerok"><input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="Точное название лота на Playerok" /></Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
         <FS label="Категория" value={catId} onChange={e => setCatId(e.target.value)} options={[{ value: "", label: "Без категории" }, ...categories.map(c => ({ value: c.id, label: c.name }))]} />
         <FI label="Цена продажи (₽)" type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="0" />
         <FI label="Закупка ($)" type="number" value={buyUsd} onChange={e => setBuyUsd(e.target.value)} placeholder="0" />
         <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "10%" }, { value: "premium", label: "20%" }]} />
       </div>
-      <Field label="Текст для совпадения с Playerok (если надо)">
-        <input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="Можно оставить пустым" />
-      </Field>
-      <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text2)", fontSize: 12, marginTop: 6 }}>
-        <input type="checkbox" checked={autoRelist} onChange={e => setAutoRelist(e.target.checked)} />
-        Автоперевыставление
-      </label>
       <MFoot onClose={onClose} onSubmit={() => {
         if (!name || !price) return;
         onAdd(
           { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status: "active" },
-          { displayName: name, matchText: matchText || name, lotUrl: playerokUrl, autoRelist }
+          { displayName: name, matchText: matchText || name, lotUrl }
         );
       }} label="Добавить" />
     </Modal>
@@ -1817,18 +1884,15 @@ function EditProductModal({ open, onClose, product: p, categories, meta = {}, on
         <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "10%" }, { value: "premium", label: "20%" }]} />
         <FS label="Статус" value={status} onChange={e => setStatus(e.target.value)} options={[{ value: "active", label: "Активен" }, { value: "inactive", label: "Неактивен" }]} />
       </div>
-      <Field label="Название товара (для сайта)"><input className="fi" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Красивое короткое название" /></Field>
-      <Field label="Текст для совпадения с названием Playerok"><input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="По чему матчить длинный title" /></Field>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI label="Ссылка Playerok" value={lotUrl} onChange={e => setLotUrl(e.target.value)} placeholder="https://playerok.com/products/..." />
-        <FI label="Позиция" value={position} onChange={e => setPosition(e.target.value)} placeholder="1" />
-      </div>
+      <Field label="Короткое имя на сайте"><input className="fi" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Красивое короткое название" /></Field>
+      <Field label="Совпадение названия Playerok"><input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="По чему матчить длинный title" /></Field>
+      <Field label="Ссылка на лот"><input className="fi" value={lotUrl} onChange={e => setLotUrl(e.target.value)} placeholder="https://..." /></Field>
       <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text2)", fontSize: 12, marginTop: 6 }}>
         <input type="checkbox" checked={autoRelist} onChange={e => setAutoRelist(e.target.checked)} />
         Автоперевыставление после покупки
       </label>
       <MFoot onClose={onClose} onSubmit={() => {
-        onSaveMeta?.(p.id, { displayName, matchText, lotUrl, position, autoRelist });
+        onSaveMeta?.(p.id, { displayName, matchText, lotUrl, autoRelist });
         onSave(p.id, { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status });
       }} label="Сохранить" />
     </Modal>
