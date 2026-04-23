@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const supabase = SUPABASE_URL ? createClient(SUPABASE_URL, SUPABASE_ANON) : null;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 const LS = {
   googleRate: "playerok_googleRate",
@@ -11,6 +12,7 @@ const LS = {
   closedSnaps: "playerok_closedSheetSnapshots",
   workerShares: "playerok_workerSheetShares",
   dailyCounts: "playerok_dailyCounts",
+  productMeta: "playerok_productMeta",
 };
 
 const ls = (k, fb = null) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
@@ -27,6 +29,47 @@ const toRuTime = (iso) => {
     return "";
   }
 };
+
+const rub = (v) => Number(v || 0).toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+const DONE_ORDER_STATUSES = ["CONFIRMED", "CONFIRMED_AUTOMATICALLY", "DONE", "COMPLETED", "DELIVERED"];
+
+function getOrderUiStatus(order) {
+  return DONE_ORDER_STATUSES.includes(order?.status) ? "sold" : "pending";
+}
+
+function getOrderCreatedAt(order) {
+  return order?.created_at || order?.createdAt || order?.paid_at || order?.paidAt || order?.updated_at || order?.updatedAt || null;
+}
+
+function getOrderPrice(order) {
+  return Number(order?.item?.price || order?.item?.raw_price || order?.price || 0);
+}
+
+function extractLotUrl(order) {
+  return order?.item?.url || order?.item?.public_url || order?.item?.link || order?.item_url || order?.lot_url || order?.product_url || order?.url || "";
+}
+
+function extractChatUrl(order) {
+  return order?.chat_url || order?.chatUrl || order?.buyer_chat_url || order?.buyerChatUrl || "";
+}
+
+function normalizeTitle(v) {
+  return String(v || "")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-zа-яё0-9$]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isTodayDateLike(value) {
+  if (!value) return false;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return false;
+  const now = new Date();
+  return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+
 
 function calcProfit({ salePrice, buyUsd, playerokRate, commType }) {
   const commRate = commType === "premium" ? 0.04 : 0.05;
@@ -690,6 +733,25 @@ export default function App() {
   const [closedSnaps, setClosedSnaps] = useState(() => ls(LS.closedSnaps, {}));
   const [workerShares, setWorkerShares] = useState(() => ls(LS.workerShares, {}));
   const [dailyCounts, setDailyCounts] = useState(() => ls(LS.dailyCounts, {}));
+  const [productMeta, setProductMeta] = useState(() => ls(LS.productMeta, {}));
+  const [playerokStats, setPlayerokStats] = useState({
+    reviews: 0,
+    rating: 0,
+    balance_total: 0,
+    balance_available: 0,
+    balance_frozen: 0,
+    balance_withdrawable: 0,
+    pending_income: 0,
+    pending_orders: 0,
+    completed_today: 0,
+    last_sync_at: null,
+    sync_ok: false,
+  });
+  const [playerokOrders, setPlayerokOrders] = useState([]);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersModalOpen, setOrdersModalOpen] = useState(false);
+  const relistSeenRef = useRef({});
   const [modals, setModals] = useState({});
   const [editTarget, setEditTarget] = useState(null);
   const { toast, show: showToast } = useToast();
@@ -698,6 +760,45 @@ export default function App() {
   const setPR = v => { _setPR(v); lsSet(LS.playerokRate, v); };
   const openM = n => setModals(m => ({ ...m, [n]: true }));
   const closeM = n => setModals(m => ({ ...m, [n]: false }));
+
+  const saveProductMeta = useCallback((productId, patch) => {
+    const next = {
+      ...productMeta,
+      [productId]: { ...(productMeta[productId] || {}), ...patch },
+    };
+    setProductMeta(next);
+    lsSet(LS.productMeta, next);
+  }, [productMeta]);
+
+  const loadPlayerokStats = useCallback(async () => {
+    if (!BACKEND_URL) return;
+    try {
+      setStatsLoading(true);
+      const res = await fetch(`${BACKEND_URL}/stats`);
+      if (!res.ok) throw new Error("Не удалось загрузить stats");
+      const data = await res.json();
+      setPlayerokStats(data || {});
+    } catch (e) {
+      console.error("Ошибка загрузки Playerok stats:", e);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  const loadPlayerokOrders = useCallback(async () => {
+    if (!BACKEND_URL) return;
+    try {
+      setOrdersLoading(true);
+      const res = await fetch(`${BACKEND_URL}/orders`);
+      if (!res.ok) throw new Error("Не удалось загрузить orders");
+      const data = await res.json();
+      setPlayerokOrders(Array.isArray(data?.orders) ? data.orders : []);
+    } catch (e) {
+      console.error("Ошибка загрузки Playerok orders:", e);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -711,6 +812,22 @@ export default function App() {
   }, []);
 
   useEffect(() => { if (auth) loadData(); }, [auth]);
+
+  useEffect(() => { lsSet(LS.productMeta, productMeta); }, [productMeta]);
+
+  useEffect(() => {
+    if (!BACKEND_URL) return;
+    loadPlayerokStats();
+    const t = setInterval(loadPlayerokStats, 30000);
+    return () => clearInterval(t);
+  }, [loadPlayerokStats]);
+
+  useEffect(() => {
+    if (!BACKEND_URL) return;
+    loadPlayerokOrders();
+    const t = setInterval(loadPlayerokOrders, 15000);
+    return () => clearInterval(t);
+  }, [loadPlayerokOrders]);
 
   const loadData = async () => {
     if (!supabase) { loadDemo(); return; }
@@ -765,6 +882,61 @@ export default function App() {
     return { gross: Math.round(gross), bumps: Math.round(bumpsAmt), net: Math.round(gross - bumpsAmt) };
   }, [sheetOrders, sheetBumps, products, playerokRate, closedSnaps]);
 
+  const getProductDisplayName = useCallback((product) => {
+    const meta = productMeta[product?.id] || {};
+    return meta.displayName || product?.name || "Без названия";
+  }, [productMeta]);
+
+  const matchOrderToProduct = useCallback((order) => {
+    const raw = normalizeTitle(order?.item?.name || order?.title || order?.item_name || order?.name || "");
+    if (!raw) return null;
+    let best = null;
+    let bestLen = 0;
+    for (const product of products) {
+      const meta = productMeta[product.id] || {};
+      const variants = [meta.matchText, product.name].filter(Boolean);
+      for (const variant of variants) {
+        const norm = normalizeTitle(variant);
+        if (!norm) continue;
+        if (raw.includes(norm) && norm.length > bestLen) {
+          best = product;
+          bestLen = norm.length;
+        }
+      }
+    }
+    return best;
+  }, [products, productMeta]);
+
+  const triggerLift = useCallback(async (product) => {
+    const meta = productMeta[product.id] || {};
+    const lotUrl = meta.lotUrl || product?.lot_url || "";
+    if (BACKEND_URL) {
+      try {
+        const res = await fetch(`${BACKEND_URL}/bump`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productId: product.id, lotUrl }),
+        });
+        if (res.ok) {
+          showToast(`Запрос на поднятие отправлен: ${getProductDisplayName(product)}`);
+          return;
+        }
+      } catch (e) {
+        console.error("Ошибка поднятия:", e);
+      }
+    }
+    if (lotUrl) {
+      window.open(lotUrl, "_blank");
+      return;
+    }
+    showToast("Нет ссылки на лот или backend для поднятия", "err");
+  }, [productMeta, showToast, getProductDisplayName]);
+
+  const toggleAutoRelist = useCallback((productId) => {
+    const current = !!(productMeta[productId]?.autoRelist);
+    saveProductMeta(productId, { autoRelist: !current });
+  }, [productMeta, saveProductMeta]);
+
   const mySheets = sheets.filter(s => !s.worker_id);
   const wSheets = sheets.filter(s => s.worker_id);
   const myProfit = mySheets.reduce((s, sh) => s + getSheetProfit(sh.id).net, 0);
@@ -798,18 +970,106 @@ export default function App() {
   const totalSoldOrders = sheetOrders.filter(o => o.status === "sold").length;
   const pendingCount = sheets.filter(s => s.status === "open").length;
   const combinedProfit = myProfit + adminFromW;
-  const recentOrders = [...sheetOrders]
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 5)
+  const liveOrders = [...playerokOrders]
     .map(order => {
-      const product = products.find(p => p.id === order.product_id);
+      const createdAt = getOrderCreatedAt(order);
+      const product = matchOrderToProduct(order);
+      const statusKey = getOrderUiStatus(order);
       return {
         ...order,
         product,
-        time: toRuTime(order.created_at),
-        statusLabel: order.status === "sold" ? "Продано" : "Ожидание",
+        createdAt,
+        time: toRuTime(createdAt),
+        title: order?.item?.name || order?.title || order?.item_name || "Без названия",
+        statusKey,
+        statusLabel: statusKey === "sold" ? "Продано" : "Ожидание",
+        lotUrl: extractLotUrl(order),
+        chatUrl: extractChatUrl(order),
+        isDone: DONE_ORDER_STATUSES.includes(order?.status),
       };
+    })
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  const recentOrders = liveOrders.slice(0, 5);
+  const todayLiveOrders = liveOrders.filter(order => isTodayDateLike(order.createdAt));
+  const completedTodayOrders = todayLiveOrders.filter(order => order.isDone);
+  const pendingLiveOrders = liveOrders.filter(order => !order.isDone);
+
+  const parsedTodayProfit = completedTodayOrders.reduce((sum, order) => {
+    if (!order.product) return sum;
+    const salePrice = getOrderPrice(order) || Number(order.product.sale_price_rub || 0);
+    return sum + Math.round(calcProfit({
+      salePrice,
+      buyUsd: Number(order.product.purchase_usd || 0),
+      playerokRate,
+      commType: order.product.commission_type,
+    }));
+  }, 0);
+
+  const balanceTotal = Number(playerokStats.balance_total || 0);
+  const balanceAvailable = Number(playerokStats.balance_available || playerokStats.balance_withdrawable || 0);
+  const totalProfitToday = parsedTodayProfit || netToday;
+  const salesTodayCount = todayLiveOrders.length || totalQtyToday;
+  const completedTodayCount = Number(playerokStats.completed_today || completedTodayOrders.length || totalQtyToday);
+  const pendingOrdersCount = Number(playerokStats.pending_orders || pendingLiveOrders.length || 0);
+
+  const tableRows = products
+    .filter(p => p.status === "active")
+    .map(product => {
+      const meta = productMeta[product.id] || {};
+      const productOrders = liveOrders.filter(order => order.product?.id === product.id);
+      const completedOrders = productOrders.filter(order => order.isDone);
+      const pendingOrders = productOrders.filter(order => !order.isDone);
+      const profitUnit = Math.round(calcProfit({
+        salePrice: Number(product.sale_price_rub || 0),
+        buyUsd: Number(product.purchase_usd || 0),
+        playerokRate,
+        commType: product.commission_type,
+      }));
+      const completedProfit = profitUnit * completedOrders.length;
+      const pendingProfit = profitUnit * pendingOrders.length;
+      return {
+        product,
+        meta,
+        title: getProductDisplayName(product),
+        category: product.category || "—",
+        price: Number(product.sale_price_rub || 0),
+        profitUnit,
+        completedQty: completedOrders.length,
+        pendingQty: pendingOrders.length,
+        position: meta.position || product.position || "—",
+        completedProfit,
+        pendingProfit,
+        autoRelist: !!meta.autoRelist,
+        lotUrl: meta.lotUrl || product.lot_url || completedOrders[0]?.lotUrl || pendingOrders[0]?.lotUrl || "",
+      };
+    })
+    .sort((a, b) => (b.completedQty - a.completedQty) || (b.pendingQty - a.pendingQty) || a.title.localeCompare(b.title));
+
+
+  useEffect(() => {
+    if (!BACKEND_URL || !liveOrders.length) return;
+    liveOrders.forEach(async (order) => {
+      if (!order.isDone || !order.product) return;
+      if (relistSeenRef.current[order.id]) return;
+      const meta = productMeta[order.product.id] || {};
+      relistSeenRef.current[order.id] = true;
+      if (!meta.autoRelist) return;
+      try {
+        await fetch(`${BACKEND_URL}/relist`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId: order.id,
+            productId: order.product.id,
+            lotUrl: meta.lotUrl || order.lotUrl || "",
+          }),
+        });
+      } catch (e) {
+        console.error("Ошибка автоперевыставления:", e);
+      }
     });
+  }, [liveOrders, productMeta]);
 
   const closeSheet = async id => {
     const snap = getSheetProfit(id);
@@ -925,64 +1185,56 @@ export default function App() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                  gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
                   gap: 10,
                 }}
               >
                 <DashboardMetricCard
-                  label="Профит сегодня"
-                  value={`${netToday >= 0 ? "+" : ""}${fmt(netToday)} ₽`}
-                  sub={`${todayStr()} · открыт`}
-                  icon="admin"
-                  tone="violet"
-                  trend="line"
-                />
-                <DashboardMetricCard
                   label="Общий профит"
-                  value={`+${fmt(combinedProfit)} ₽`}
+                  value={`${combinedProfit >= 0 ? "+" : ""}${fmt(combinedProfit)} ₽`}
                   sub={`${totalClosedDays} закрытых дней`}
                   icon="rate"
                   tone="blue"
                   trend="line"
                 />
                 <DashboardMetricCard
+                  label="Профит сегодня"
+                  value={`${totalProfitToday >= 0 ? "+" : ""}${fmt(totalProfitToday)} ₽`}
+                  sub={`${todayStr()} · ${sheets.some(s => s.status === "open") ? "открыт" : "без открытого дня"}`}
+                  icon="admin"
+                  tone="violet"
+                  trend="line"
+                />
+                <DashboardMetricCard
                   label="Продажи сегодня"
-                  value={String(totalQtyToday)}
-                  sub={`${fmt(revenueToday)} ₽ оборот`}
+                  value={String(salesTodayCount)}
+                  sub={`${rub(todayLiveOrders.reduce((sum, order) => sum + getOrderPrice(order), 0))} ₽ оборот`}
                   icon="catalog"
                   tone="cyan"
                   trend="bars"
                 />
                 <DashboardMetricCard
-                  label="Средний чек"
-                  value={`${fmt(avgCheckToday)} ₽`}
-                  sub={`${fmtF(totalQtyToday > 0 ? ((avgCheckToday / Math.max(playerokRate, 1)) * 0.1) : 0, 1)}% к вчера`}
-                  icon="sheets"
-                  tone="rose"
-                  trend="line"
-                />
-                <DashboardMetricCard
-                  label="Отзывы"
-                  value={fmt(totalSoldOrders)}
-                  sub={`Рейтинг ${totalSoldOrders > 0 ? 5 : 0}`}
-                  icon="plus"
-                  tone="amber"
+                  label="Выполнено за день"
+                  value={String(completedTodayCount)}
+                  sub={statsLoading ? "обновляем..." : "синхронизировано"}
+                  icon="refresh"
+                  tone="green"
                   trend="line"
                 />
                 <DashboardMetricCard
                   label="В ожидании"
-                  value={String(pendingCount)}
-                  sub={`${fmt(totalBumpsToday)} ₽`}
+                  value={String(pendingOrdersCount)}
+                  sub={`${rub(playerokStats.pending_income || 0)} ₽`}
                   icon="rate"
                   tone="orange"
                   trend="line"
                 />
                 <DashboardMetricCard
-                  label="Выполнено за день"
-                  value={String(totalQtyToday)}
-                  sub="Синхронизировано"
-                  icon="refresh"
-                  tone="green"
+                  label="Баланс"
+                  value={`${rub(balanceTotal)} ₽`}
+                  sub={`Доступно к выводу: ${rub(balanceAvailable)} ₽`}
+                  icon="sheets"
+                  tone="amber"
                   trend="line"
                 />
               </div>
@@ -1010,27 +1262,24 @@ export default function App() {
                       <div style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Live покупки</div>
                       <span style={{ fontSize: 9, fontWeight: 800, color: "#7ef7a1", background: "rgba(34,197,94,.15)", border: "1px solid rgba(34,197,94,.22)", borderRadius: 999, padding: "2px 6px", letterSpacing: ".04em" }}>LIVE</span>
                     </div>
-                    <button className="btn-g" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => openM("addOrder")}>Добавить</button>
+                    <button className="btn-g" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => setOrdersModalOpen(true)}>Открыть</button>
                   </div>
 
                   <div style={{ display: "grid", gap: 8, overflowY: "auto", paddingRight: 2, flex: 1 }}>
                     {recentOrders.map(order => (
-                      <div key={order.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr auto", gap: 10, alignItems: "center", padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,.02)", border: "1px solid rgba(96,165,250,.08)" }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(180deg, rgba(37,99,235,.22), rgba(139,92,246,.18))", display: "grid", placeItems: "center" }}>
-                          <Icon name="catalog" size={14} color="#dbe6ff" />
-                        </div>
+                      <div key={order.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,.02)", border: "1px solid rgba(96,165,250,.08)" }}>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#eff4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{order.product?.name || "Без названия"}</div>
-                          <div style={{ fontSize: 11, color: "#94a3c4", marginTop: 2 }}>{fmt(order.sale_price)} ₽</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#eff4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{order.title}</div>
+                          <div style={{ fontSize: 11, color: "#94a3c4", marginTop: 2 }}>{order.time || "—"}</div>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 10.5, fontWeight: 700, color: order.status === "sold" ? "#67e28b" : "#fbbf24", marginBottom: 4 }}>{order.statusLabel}</div>
-                          <div style={{ fontSize: 11, color: "#7f89a9" }}>{order.time}</div>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: order.statusKey === "sold" ? "#67e28b" : "#fbbf24", marginBottom: 4 }}>{order.statusLabel}</div>
+                          {order.lotUrl ? <a href={order.lotUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#9fb4ff", textDecoration: "none" }}>Лот</a> : <span style={{ fontSize: 11, color: "#7f89a9" }}>без ссылки</span>}
                         </div>
                       </div>
                     ))}
 
-                    {!recentOrders.length && <div style={{ color: "#6f7a99", fontSize: 12 }}>Пока нет данных</div>}
+                    {!recentOrders.length && <div style={{ color: "#6f7a99", fontSize: 12 }}>{ordersLoading ? "Загрузка..." : "Пока нет данных"}</div>}
                   </div>
                 </div>
 
@@ -1050,71 +1299,58 @@ export default function App() {
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
-                        <tr><th>Лот</th><th>Категория</th><th>Цена</th><th>Закуп / ед</th><th>Профит / ед</th><th>Кол-во</th><th>Поднятия</th><th>Итог</th></tr>
+                        <tr><th>Лот</th><th>Категория</th><th>Цена</th><th>Профит</th><th>Кол-во</th><th>Позиция</th><th>В ожидании</th><th>Итог</th></tr>
                       </thead>
                       <tbody>
-                        {products.filter(p => p.status === "active").slice(0, 5).map(p => {
-                          const e = dayEntry[p.id] || { qty: 0, bumps: 0 };
-                          const pp = Math.round(calcProfit({ salePrice: p.sale_price_rub, buyUsd: p.purchase_usd, playerokRate, commType: p.commission_type }));
-                          const итог = pp * e.qty - (e.bumps || 0);
-                          return (
-                            <tr key={p.id} className="tr">
-                              <td style={{ fontWeight: 700, color: "#eef3ff", fontSize: 13 }}>{p.name}</td>
-                              <td><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: "rgba(139,92,246,.12)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,.15)" }}>{p.category || "—"}</span></td>
-                              <td style={{ fontWeight: 700, color: "#eef3ff" }}>{fmt(p.sale_price_rub)} ₽</td>
-                              <td style={{ color: "#9ba7c8" }}>${fmtF(p.purchase_usd)}</td>
-                              <td style={{ fontWeight: 800, color: pp >= 0 ? "#61e58f" : "#fb7185" }}>{pp >= 0 ? "+" : ""}{fmt(pp)} ₽</td>
-                              <td>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "qty", -1)}>−</button>
-                                  <span style={{ fontWeight: 800, color: "#eef3ff", fontSize: 15, minWidth: 22, textAlign: "center" }}>{e.qty}</span>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "qty", 1)}>+</button>
+                        {tableRows.slice(0, 8).map(row => (
+                          <tr key={row.product.id} className="tr">
+                            <td style={{ fontWeight: 700, color: "#eef3ff", fontSize: 13, maxWidth: 180 }}>
+                              <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={row.title}>{row.title}</div>
+                            </td>
+                            <td><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: "rgba(139,92,246,.12)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,.15)" }}>{row.category}</span></td>
+                            <td style={{ fontWeight: 700, color: "#eef3ff" }}>{fmt(row.price)} ₽</td>
+                            <td style={{ fontWeight: 800, color: row.profitUnit >= 0 ? "#61e58f" : "#fb7185" }}>{row.profitUnit >= 0 ? "+" : ""}{fmt(row.profitUnit)} ₽</td>
+                            <td style={{ fontWeight: 700, color: "#eef3ff" }}>{row.completedQty}</td>
+                            <td>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <div style={{ fontSize: 12, color: "#eef3ff" }}>{row.position}</div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <button className="btn-g" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => triggerLift(row.product)}>Поднять</button>
+                                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9fb0d5" }}>
+                                    <input type="checkbox" checked={row.autoRelist} onChange={() => toggleAutoRelist(row.product.id)} />
+                                    Авто
+                                  </label>
                                 </div>
-                              </td>
-                              <td>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", -10)}>−</button>
-                                  <span style={{ fontWeight: 700, color: (e.bumps || 0) > 0 ? "#f6c356" : "#7f89a9", fontSize: 12, minWidth: 36, textAlign: "center" }}>{(e.bumps || 0) > 0 ? `−${fmt(e.bumps)} ₽` : "0"}</span>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", 10)}>+</button>
-                                </div>
-                              </td>
-                              <td style={{ fontWeight: 800, fontSize: 13, color: (e.qty > 0 || (e.bumps || 0) > 0) ? (итог >= 0 ? "#61e58f" : "#fb7185") : "#7f89a9" }}>
-                                {(e.qty > 0 || (e.bumps || 0) > 0) ? `${итог >= 0 ? "+" : ""}${fmt(итог)} ₽` : "—"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {!products.filter(p => p.status === "active").length && (
+                              </div>
+                            </td>
+                            <td style={{ fontWeight: 700, color: row.pendingQty > 0 ? "#fbbf24" : "#7f89a9" }}>
+                              <div>{row.pendingQty}</div>
+                              <div style={{ fontSize: 11, color: row.pendingQty > 0 ? "#fbbf24" : "#7f89a9", marginTop: 4 }}>
+                                {row.pendingQty > 0 ? `${fmt(row.pendingProfit)} ₽` : "—"}
+                              </div>
+                            </td>
+                            <td style={{ fontWeight: 800, fontSize: 13, color: row.completedProfit >= 0 ? "#61e58f" : "#fb7185" }}>
+                              <div>{row.completedProfit >= 0 ? "+" : ""}{fmt(row.completedProfit)} ₽</div>
+                              <div style={{ fontSize: 11, color: row.pendingProfit > 0 ? "#fbbf24" : "#7f89a9", marginTop: 4 }}>
+                                {row.pendingQty > 0 ? `ожид.: ${fmt(row.pendingProfit)} ₽` : "—"}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {!tableRows.length && (
                           <tr><td colSpan={8} style={{ textAlign: "center", padding: "30px", color: "#7f89a9" }}>Товаров нет — добавь в Каталоге</td></tr>
                         )}
                         <tr style={{ background: "rgba(139,92,246,.05)" }}>
-                          <td colSpan={5} style={{ fontWeight: 800, color: "#eef3ff", fontSize: 12, borderTop: "1px solid rgba(139,92,246,.12)" }}>Итого</td>
-                          <td style={{ fontWeight: 800, color: "#eef3ff", borderTop: "1px solid rgba(139,92,246,.12)" }}>{totalQtyToday}</td>
-                          <td style={{ color: totalBumpsToday > 0 ? "#f6c356" : "#7f89a9", fontWeight: 700, borderTop: "1px solid rgba(139,92,246,.12)" }}>{totalBumpsToday > 0 ? `−${fmt(totalBumpsToday)} ₽` : "—"}</td>
-                          <td style={{ fontWeight: 800, fontSize: 14, color: netToday >= 0 ? "#61e58f" : "#fb7185", borderTop: "1px solid rgba(139,92,246,.12)" }}>{netToday >= 0 ? "+" : ""}{fmt(netToday)} ₽</td>
+                          <td colSpan={4} style={{ fontWeight: 800, color: "#eef3ff", fontSize: 12, borderTop: "1px solid rgba(139,92,246,.12)" }}>Итого</td>
+                          <td style={{ fontWeight: 800, color: "#eef3ff", borderTop: "1px solid rgba(139,92,246,.12)" }}>{tableRows.reduce((s, row) => s + row.completedQty, 0)}</td>
+                          <td style={{ color: "#7f89a9", fontWeight: 700, borderTop: "1px solid rgba(139,92,246,.12)" }}>—</td>
+                          <td style={{ color: pendingOrdersCount > 0 ? "#f6c356" : "#7f89a9", fontWeight: 700, borderTop: "1px solid rgba(139,92,246,.12)" }}>{pendingOrdersCount}</td>
+                          <td style={{ fontWeight: 800, fontSize: 14, color: totalProfitToday >= 0 ? "#61e58f" : "#fb7185", borderTop: "1px solid rgba(139,92,246,.12)" }}>{totalProfitToday >= 0 ? "+" : ""}{fmt(tableRows.reduce((s, row) => s + row.completedProfit, 0))} ₽</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                  gap: 12,
-                  padding: "16px 18px",
-                  borderRadius: 16,
-                  border: "1px solid rgba(99,102,241,.14)",
-                  background: "linear-gradient(180deg, #0b1223, #0a1020)",
-                }}
-              >
-                <DashboardBottomStat icon="rate" title="Курс Google" value={`${fmtF(googleRate)} ₽`} sub="обновляется вручную" tone="violet" />
-                <DashboardBottomStat icon="admin" title="Курс Playerok" value={`${fmtF(playerokRate)} ₽`} sub="установлен вручную" tone="blue" />
-                <DashboardBottomStat icon="sheets" title="К выводу" value={`${fmt(combinedProfit)} ₽`} sub={`из ${fmt(combinedProfit + workerProfit)} ₽`} tone="rose" />
-                <DashboardBottomStat icon="catalog" title="В ожидании" value={`${fmt(totalBumpsToday)} ₽`} sub={`${pendingCount} листов`} tone="orange" />
-                <DashboardBottomStat icon="refresh" title="Синхронизация" value="Онлайн" sub="локально сохранено" tone="green" />
               </div>
             </div>
           )}
@@ -1161,10 +1397,10 @@ export default function App() {
                           <span style={{ fontSize: 11, color: "var(--text3)" }}>%</span>
                         </div>
                       )}
-                      {isAdmin && sh.status === "open" && (
+                      {isAdmin && (
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button className="btn-g" style={{ flex: 1, fontSize: 11, justifyContent: "center" }} onClick={() => closeSheet(sh.id)}>✓ Закрыть лист</button>
-                          <button className="btn-i d" onClick={() => deleteSheet(sh.id)}><Icon name="x" size={12} /></button>
+                          {sh.status === "open" && <button className="btn-g" style={{ flex: 1, fontSize: 11, justifyContent: "center" }} onClick={() => closeSheet(sh.id)}>✓ Закрыть лист</button>}
+                          <button className="btn-i d" onClick={() => deleteSheet(sh.id)} title="Удалить рабочий день"><Icon name="x" size={12} /></button>
                         </div>
                       )}
                     </div>
@@ -1271,6 +1507,7 @@ export default function App() {
       </main>
 
       {/* MODALS */}
+      <OrdersModal open={ordersModalOpen} onClose={() => setOrdersModalOpen(false)} orders={liveOrders} loading={ordersLoading} />
       <AddOrderModal open={!!modals.addOrder} onClose={() => closeM("addOrder")} products={products} sheets={sheets.filter(s => s.status === "open")} workers={workers} isAdmin={isAdmin} onAdd={async order => {
         if (supabase) { await supabase.from("sheet_orders").insert([order]); if (order.bumps > 0) await supabase.from("sheet_bumps").insert([{ sheet_id: order.sheet_id, amount: order.bumps }]); await loadData(); }
         else { setSheetOrders(prev => [...prev, { ...order, id: Date.now(), created_at: new Date().toISOString() }]); }
@@ -1302,7 +1539,7 @@ export default function App() {
       }} />
 
       {editTarget && (
-        <EditProductModal open={!!modals.editProduct} onClose={() => { closeM("editProduct"); setEditTarget(null); }} product={editTarget} categories={categories} onSave={async (id, upd) => {
+        <EditProductModal open={!!modals.editProduct} onClose={() => { closeM("editProduct"); setEditTarget(null); }} product={editTarget} categories={categories} meta={productMeta[editTarget.id] || {}} onSaveMeta={saveProductMeta} onSave={async (id, upd) => {
           if (supabase) await supabase.from("products").update(upd).eq("id", id);
           setProducts(prev => prev.map(x => x.id === id ? { ...x, ...upd, category: categories.find(c => c.id == upd.category_id)?.name || x.category } : x));
           showToast("Товар обновлён"); closeM("editProduct"); setEditTarget(null);
@@ -1315,6 +1552,33 @@ export default function App() {
 }
 
 // ── MODAL COMPONENTS ──────────────────────────────────────────────────────────
+
+
+function OrdersModal({ open, onClose, orders, loading }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Live покупки" width={920}>
+      <div style={{ display: "grid", gap: 10, maxHeight: "70vh", overflowY: "auto", paddingRight: 4 }}>
+        {loading && <div style={{ color: "var(--text3)", fontSize: 13 }}>Загрузка...</div>}
+        {!loading && !orders.length && <div style={{ color: "var(--text3)", fontSize: 13 }}>Пока нет данных</div>}
+        {!loading && orders.map(order => (
+          <div key={order.id} className="card" style={{ padding: 14, background: "rgba(168,85,247,.04)", border: "1px solid rgba(168,85,247,.12)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 12, alignItems: "start" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{order.title}</div>
+                <div style={{ display: "grid", gap: 4, fontSize: 11, color: "var(--text3)" }}>
+                  <div>Время покупки: {order.time || "—"}</div>
+                  <div>Ссылка на лот: {order.lotUrl ? <a href={order.lotUrl} target="_blank" rel="noreferrer" style={{ color: "#9fb4ff", textDecoration: "none" }}>{order.lotUrl}</a> : "нет ссылки"}</div>
+                  {order.chatUrl && <div>Чат: <a href={order.chatUrl} target="_blank" rel="noreferrer" style={{ color: "#9fb4ff", textDecoration: "none" }}>открыть</a></div>}
+                </div>
+              </div>
+              <div><Badge status={order.statusKey} /></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
 
 function AddOrderModal({ open, onClose, products, sheets, workers, isAdmin, onAdd }) {
   const [pid, setPid] = useState("");
@@ -1405,13 +1669,33 @@ function AddProductModal({ open, onClose, categories, onAdd }) {
   );
 }
 
-function EditProductModal({ open, onClose, product: p, categories, onSave }) {
+function EditProductModal({ open, onClose, product: p, categories, meta = {}, onSaveMeta, onSave }) {
   const [name, setName] = useState(p.name);
   const [catId, setCatId] = useState(p.category_id || "");
   const [price, setPrice] = useState(p.sale_price_rub);
   const [buyUsd, setBuyUsd] = useState(p.purchase_usd);
   const [ct, setCt] = useState(p.commission_type || "standard");
   const [status, setStatus] = useState(p.status || "active");
+  const [displayName, setDisplayName] = useState(meta.displayName || p.name || "");
+  const [matchText, setMatchText] = useState(meta.matchText || p.name || "");
+  const [lotUrl, setLotUrl] = useState(meta.lotUrl || "");
+  const [position, setPosition] = useState(meta.position || "");
+  const [autoRelist, setAutoRelist] = useState(!!meta.autoRelist);
+
+  useEffect(() => {
+    setName(p.name);
+    setCatId(p.category_id || "");
+    setPrice(p.sale_price_rub);
+    setBuyUsd(p.purchase_usd);
+    setCt(p.commission_type || "standard");
+    setStatus(p.status || "active");
+    setDisplayName(meta.displayName || p.name || "");
+    setMatchText(meta.matchText || p.name || "");
+    setLotUrl(meta.lotUrl || "");
+    setPosition(meta.position || "");
+    setAutoRelist(!!meta.autoRelist);
+  }, [p, meta]);
+
   return (
     <Modal open={open} onClose={onClose} title={"Редактировать: " + p.name}>
       <FI label="Название" value={name} onChange={e => setName(e.target.value)} />
@@ -1422,7 +1706,20 @@ function EditProductModal({ open, onClose, product: p, categories, onSave }) {
         <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "5% Standard" }, { value: "premium", label: "4% Premium" }]} />
         <FS label="Статус" value={status} onChange={e => setStatus(e.target.value)} options={[{ value: "active", label: "Активен" }, { value: "inactive", label: "Неактивен" }]} />
       </div>
-      <MFoot onClose={onClose} onSubmit={() => onSave(p.id, { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status })} label="Сохранить" />
+      <Field label="Короткое имя на сайте"><input className="fi" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Красивое короткое название" /></Field>
+      <Field label="Совпадение названия Playerok"><input className="fi" value={matchText} onChange={e => setMatchText(e.target.value)} placeholder="По чему матчить длинный title" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+        <FI label="Ссылка на лот" value={lotUrl} onChange={e => setLotUrl(e.target.value)} placeholder="https://..." />
+        <FI label="Позиция" value={position} onChange={e => setPosition(e.target.value)} placeholder="1" />
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text2)", fontSize: 12, marginTop: 6 }}>
+        <input type="checkbox" checked={autoRelist} onChange={e => setAutoRelist(e.target.checked)} />
+        Автоперевыставление после покупки
+      </label>
+      <MFoot onClose={onClose} onSubmit={() => {
+        onSaveMeta?.(p.id, { displayName, matchText, lotUrl, position, autoRelist });
+        onSave(p.id, { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status });
+      }} label="Сохранить" />
     </Modal>
   );
 }
