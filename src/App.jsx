@@ -299,7 +299,7 @@ function Toast({ toast }) {
   );
 }
 
-function MetricCard({ label, value, sub, delay = 0 }) {
+ function MetricCard({ label, value, sub, delay = 0 }) {
   return (
     <div
       className="card"
@@ -321,13 +321,34 @@ function MetricCard({ label, value, sub, delay = 0 }) {
           background: "rgba(168,85,247,.08)",
         }}
       />
-      <div style={{ fontSize: 10.5, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 700, marginBottom: 6 }}>
+      <div
+        style={{
+          fontSize: 10.5,
+          color: "var(--text3)",
+          textTransform: "uppercase",
+          letterSpacing: ".08em",
+          fontWeight: 700,
+          marginBottom: 6,
+        }}
+      >
         {label}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text)", lineHeight: 1.1, letterSpacing: "-.03em" }}>
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 800,
+          color: "var(--text)",
+          lineHeight: 1.1,
+          letterSpacing: "-.03em",
+        }}
+      >
         {value}
       </div>
-      {sub && <div style={{ marginTop: 5, fontSize: 11, color: "var(--text3)" }}>{sub}</div>}
+      {sub && (
+        <div style={{ marginTop: 5, fontSize: 11, color: "var(--text3)" }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
@@ -1887,26 +1908,17 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <div
-              onClick={() => setPage("rate")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 10px",
-                borderRadius: 10,
-                background: "#140f1d",
-                border: "1px solid var(--border)",
-                fontSize: 12,
-                color: "var(--text2)",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#a855f7", animation: "fadeIn 1.2s infinite alternate" }} />
-              {fmtF(googleRate)} ₽/$
-            </div>
-          </div>
-        </div>
+  {currentOpenDay ? (
+    <button className="btn-g" onClick={closeCurrentWorkDay}>
+      Закрыть рабочий день
+    </button>
+  ) : (
+    <button className="btn-p" onClick={openWorkDay}>
+      Открыть рабочий день
+    </button>
+  )}
+ </div>
+ </div>
 
         <div style={{ flex: 1, padding: "18px 22px", overflowY: "auto" }}>
           {page === "dashboard" && (
@@ -1972,7 +1984,7 @@ export default function App() {
   className="mobile-stack"
   style={{
     display: "grid",
-    gridTemplateColumns: "220px 320px 1fr",
+    gridTemplateColumns: "220px minmax(0, 1fr)",
     gap: 12,
     marginBottom: 16,
     alignItems: "start",
@@ -2059,48 +2071,7 @@ export default function App() {
           Пока нет данных
         </div>
       )}
-    </div>
-  </div>
-
-  <div className="card" style={{ padding: "14px 16px", minHeight: 150 }}>
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 10,
-        gap: 10,
-        flexWrap: "wrap",
-      }}
-    >
-      <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-        Рабочий день
-      </div>
-
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button className="btn-p" onClick={openWorkDay}>
-          Открыть рабочий день
-        </button>
-        <button className="btn-g" onClick={closeCurrentWorkDay}>
-          Закрыть рабочий день
-        </button>
-      </div>
-    </div>
-
-    <div className="note-box">
-      {currentOpenDay ? (
-        <>
-          Открыт день <b>{toRuDate(currentOpenDay.date)}</b> · продаж{" "}
-          <b>{currentOpenStats?.qty || 0}</b> · профит{" "}
-          <b>
-            {(currentOpenStats?.net || 0) >= 0 ? "+" : ""}
-            {fmt(currentOpenStats?.net || 0)} ₽
-          </b>
-        </>
-      ) : (
-        <>Сейчас нет открытого рабочего дня</>
-      )}
-    </div>
+    </div> 
   </div>
  </div>
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
