@@ -8,9 +8,9 @@ const supabase = SUPABASE_URL ? createClient(SUPABASE_URL, SUPABASE_ANON) : null
 const LS = {
   googleRate: "playerok_googleRate",
   playerokRate: "playerok_playerokRate",
-  closedSnaps: "playerok_closedSheetSnapshots",
-  workerShares: "playerok_workerSheetShares",
+  workerShares: "playerok_workerShares",
   dailyCounts: "playerok_dailyCounts",
+  workDays: "playerok_workDays",
 };
 
 const ls = (k, fb = null) => {
@@ -22,9 +22,17 @@ const ls = (k, fb = null) => {
 };
 
 const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
 const fmt = (n) => Math.round(Number(n || 0)).toLocaleString("ru-RU");
 const fmtF = (n, d = 2) => Number(n || 0).toFixed(d);
 const todayKey = () => new Date().toISOString().slice(0, 10);
+const toRuDate = (iso) => {
+  try {
+    return new Date(iso).toLocaleDateString("ru-RU");
+  } catch {
+    return iso;
+  }
+};
 
 const SALE_TARIFFS = {
   10: [
@@ -82,8 +90,8 @@ async function fetchGoogleRateReal() {
 const P = {
   dashboard:
     "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
-  sheets:
-    "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z",
+  workdays:
+    "M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zm-7-9h-2v3H7v2h3v3h2v-3h3v-2h-3z",
   calc:
     "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z",
   rate:
@@ -103,16 +111,12 @@ const P = {
     "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z",
   trash:
     "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm3.46-7.12 1.41-1.41L12 11.59l1.12-1.12 1.41 1.41L13.41 13l1.12 1.12-1.41 1.41L12 14.41l-1.12 1.12-1.41-1.41L10.59 13l-1.13-1.12zM15.5 4l-1-1h-5l-1 1H5v2h14V4z",
+  eye:
+    "M12 6.5c-5 0-9.27 3.11-11 7.5 1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z",
 };
 
 const Icon = ({ name, size = 16, color = "currentColor" }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill={color}
-    style={{ flexShrink: 0 }}
-  >
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ flexShrink: 0 }}>
     <path d={P[name] || P.dashboard} />
   </svg>
 );
@@ -160,26 +164,20 @@ const FS = ({ label, options, ...p }) => (
 
 function Badge({ status }) {
   const map = {
-    sold: ["Продано", "#ffffff", "rgba(255,255,255,.08)"],
-    pending: ["Ожидание", "#d4d4d8", "rgba(255,255,255,.05)"],
-    cancelled: ["Отменено", "#8a8a8f", "rgba(255,255,255,.03)"],
-    open: ["Открыт", "#ffffff", "rgba(255,255,255,.08)"],
-    closed: ["Закрыт", "#8a8a8f", "rgba(255,255,255,.03)"],
-    active: ["Активен", "#ffffff", "rgba(255,255,255,.08)"],
-    inactive: ["Неактивен", "#8a8a8f", "rgba(255,255,255,.03)"],
+    sold: ["Продано", "#efe9ff", "rgba(168,85,247,.16)"],
+    open: ["Открыт", "#efe9ff", "rgba(168,85,247,.16)"],
+    closed: ["Закрыт", "#b8b0cc", "rgba(255,255,255,.04)"],
+    active: ["Активен", "#efe9ff", "rgba(168,85,247,.16)"],
+    inactive: ["Неактивен", "#8f88a2", "rgba(255,255,255,.03)"],
   };
-  const [label, color, bg] = map[status] || [
-    status,
-    "#d4d4d8",
-    "rgba(255,255,255,.05)",
-  ];
+  const [label, color, bg] = map[status] || [status, "#d4d4d8", "rgba(255,255,255,.05)"];
   return (
     <span
       className="badge"
       style={{
         color,
         background: bg,
-        border: "1px solid rgba(255,255,255,.08)",
+        border: "1px solid rgba(168,85,247,.18)",
       }}
     >
       {label}
@@ -226,17 +224,8 @@ function Modal({ open, onClose, title, children, width = 460 }) {
           animation: "scaleIn .2s ease",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 18,
-          }}
-        >
-          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>
-            {title}
-          </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{title}</div>
           <button className="btn-i" onClick={onClose}>
             <Icon name="x" size={12} />
           </button>
@@ -249,12 +238,8 @@ function Modal({ open, onClose, title, children, width = 460 }) {
 
 const MFoot = ({ onClose, onSubmit, label = "Сохранить" }) => (
   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
-    <button className="btn-g" onClick={onClose}>
-      Отмена
-    </button>
-    <button className="btn-p" onClick={onSubmit}>
-      {label}
-    </button>
+    <button className="btn-g" onClick={onClose}>Отмена</button>
+    <button className="btn-p" onClick={onSubmit}>{label}</button>
   </div>
 );
 
@@ -279,8 +264,8 @@ function Toast({ toast }) {
         position: "fixed",
         right: 24,
         bottom: 24,
-        background: "rgba(12,12,12,.95)",
-        border: "1px solid rgba(255,255,255,.12)",
+        background: "rgba(18,12,24,.96)",
+        border: "1px solid rgba(168,85,247,.24)",
         color: "var(--text)",
         borderRadius: 12,
         padding: "11px 15px",
@@ -300,7 +285,7 @@ function MetricCard({ label, value, sub, delay = 0 }) {
     <div
       className="card"
       style={{
-        padding: "16px 18px",
+        padding: "14px 16px",
         animation: `fadeUp .3s ease ${delay}s both`,
         position: "relative",
         overflow: "hidden",
@@ -314,37 +299,16 @@ function MetricCard({ label, value, sub, delay = 0 }) {
           width: 64,
           height: 64,
           borderRadius: "50%",
-          background: "rgba(255,255,255,.03)",
+          background: "rgba(168,85,247,.08)",
         }}
       />
-      <div
-        style={{
-          fontSize: 10.5,
-          color: "var(--text3)",
-          textTransform: "uppercase",
-          letterSpacing: ".08em",
-          fontWeight: 700,
-          marginBottom: 6,
-        }}
-      >
+      <div style={{ fontSize: 10.5, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 700, marginBottom: 6 }}>
         {label}
       </div>
-      <div
-        style={{
-          fontSize: 25,
-          fontWeight: 800,
-          color: "var(--text)",
-          lineHeight: 1.1,
-          letterSpacing: "-.03em",
-        }}
-      >
+      <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text)", lineHeight: 1.1, letterSpacing: "-.03em" }}>
         {value}
       </div>
-      {sub && (
-        <div style={{ marginTop: 5, fontSize: 11, color: "var(--text3)" }}>
-          {sub}
-        </div>
-      )}
+      {sub && <div style={{ marginTop: 5, fontSize: 11, color: "var(--text3)" }}>{sub}</div>}
     </div>
   );
 }
@@ -354,18 +318,7 @@ function MiniBar({ data }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 82 }}>
       {data.map((d, i) => (
-        <div
-          key={i}
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: 4,
-            height: "100%",
-          }}
-        >
+        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%" }}>
           <div
             title={`${d.l}: ${fmt(d.v)} ₽`}
             style={{
@@ -373,7 +326,7 @@ function MiniBar({ data }) {
               minHeight: 3,
               height: `${Math.max((d.v / max) * 62, 3)}px`,
               borderRadius: "4px 4px 0 0",
-              background: i === data.length - 1 ? "#fff" : "rgba(255,255,255,.18)",
+              background: i === data.length - 1 ? "#a855f7" : "rgba(168,85,247,.28)",
               transition: "height .18s ease",
             }}
           />
@@ -398,20 +351,13 @@ function AuthScreen({ onLogin }) {
     setLoading(true);
 
     if (supabase) {
-      const { data, error: err } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
       if (err) {
         setError(err.message);
         setLoading(false);
         return;
       }
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", data.user.id)
-        .single();
+      const { data: prof } = await supabase.from("profiles").select("role").eq("id", data.user.id).single();
       onLogin({ user: data.user, role: prof?.role || "admin", session: data.session });
     } else {
       if (email === "admin@playerok.ru" && password === "admin123") {
@@ -430,21 +376,13 @@ function AuthScreen({ onLogin }) {
     setLoading(true);
 
     if (supabase) {
-      const { data: wk, error: err } = await supabase
-        .from("worker_keys")
-        .select("*")
-        .eq("key", workerKey)
-        .single();
+      const { data: wk, error: err } = await supabase.from("worker_keys").select("*").eq("key", workerKey).single();
       if (err || !wk) {
         setError("Неверный ключ воркера");
         setLoading(false);
         return;
       }
-      onLogin({
-        user: { id: `w-${wk.id}` },
-        role: "worker",
-        workerData: wk,
-      });
+      onLogin({ user: { id: `w-${wk.id}` }, role: "worker", workerData: wk });
     } else {
       if (workerKey === "worker-demo") {
         onLogin({
@@ -467,14 +405,7 @@ function AuthScreen({ onLogin }) {
       <div className="auth-card">
         <div style={{ textAlign: "center", marginBottom: 26 }}>
           <div className="logo-box">◼</div>
-          <div
-            style={{
-              fontSize: 19,
-              fontWeight: 800,
-              color: "var(--text)",
-              letterSpacing: "-.02em",
-            }}
-          >
+          <div style={{ fontSize: 19, fontWeight: 800, color: "var(--text)", letterSpacing: "-.02em" }}>
             Playerok Tracker
           </div>
           <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 3 }}>
@@ -503,28 +434,11 @@ function AuthScreen({ onLogin }) {
         <form onSubmit={mode === "admin" ? handleAdmin : handleWorker}>
           {mode === "admin" ? (
             <>
-              <FI
-                label="Email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@playerok.ru"
-              />
-              <FI
-                label="Пароль"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-              />
+              <FI label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@playerok.ru" />
+              <FI label="Пароль" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
             </>
           ) : (
-            <FI
-              label="Worker Key"
-              value={workerKey}
-              onChange={(e) => setWorkerKey(e.target.value)}
-              placeholder="worker-xxxxx"
-            />
+            <FI label="Worker Key" value={workerKey} onChange={(e) => setWorkerKey(e.target.value)} placeholder="worker-xxxxx" />
           )}
 
           {error && <div className="error-box">{error}</div>}
@@ -564,31 +478,14 @@ function CalcPage({ products, playerokRate }) {
   const adminAmount = net - workerAmount;
 
   const row = (l, v, c) => (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        padding: "8px 0",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
       <span style={{ color: "var(--text3)", fontSize: 12 }}>{l}</span>
-      <span style={{ color: c || "var(--text)", fontWeight: 700, fontSize: 12 }}>
-        {v}
-      </span>
+      <span style={{ color: c || "var(--text)", fontWeight: 700, fontSize: 12 }}>{v}</span>
     </div>
   );
 
   return (
-    <div
-      className="pa"
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 16,
-        maxWidth: 860,
-      }}
-    >
+    <div className="pa" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 860 }}>
       <div className="card">
         <div className="block-title">Параметры</div>
 
@@ -613,26 +510,9 @@ function CalcPage({ products, playerokRate }) {
         />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          <FI
-            label="Цена продажи (₽)"
-            type="number"
-            value={sp}
-            onChange={(e) => setSp(e.target.value)}
-            placeholder="0"
-          />
-          <FI
-            label="Закупка ($)"
-            type="number"
-            value={bu}
-            onChange={(e) => setBu(e.target.value)}
-            placeholder="0"
-          />
-          <FI
-            label="Курс Playerok"
-            type="number"
-            value={pr}
-            onChange={(e) => setPr(e.target.value)}
-          />
+          <FI label="Цена продажи (₽)" type="number" value={sp} onChange={(e) => setSp(e.target.value)} placeholder="0" />
+          <FI label="Закупка ($)" type="number" value={bu} onChange={(e) => setBu(e.target.value)} placeholder="0" />
+          <FI label="Курс Playerok" type="number" value={pr} onChange={(e) => setPr(e.target.value)} />
           <FS
             label="Комиссия с продажи"
             value={saleCommission}
@@ -642,23 +522,12 @@ function CalcPage({ products, playerokRate }) {
               { value: 20, label: "20%" },
             ]}
           />
-          <FI
-            label="Доля воркера (%)"
-            type="number"
-            value={ws}
-            onChange={(e) => setWs(Number(e.target.value) || 0)}
-          />
-          <FI
-            label="Поднятия (₽)"
-            type="number"
-            value={bm}
-            onChange={(e) => setBm(Number(e.target.value) || 0)}
-          />
+          <FI label="Доля воркера (%)" type="number" value={ws} onChange={(e) => setWs(Number(e.target.value) || 0)} />
+          <FI label="Поднятия (₽)" type="number" value={bm} onChange={(e) => setBm(Number(e.target.value) || 0)} />
         </div>
 
         <div className="note-box" style={{ marginTop: 10 }}>
-          Выставление по тарифу: <b>{fmt(tariff.listing)} ₽</b> · Поднятие по тарифу:{" "}
-          <b>{fmt(tariff.bump)} ₽</b>
+          Выставление по тарифу: <b>{fmt(tariff.listing)} ₽</b> · Поднятие по тарифу: <b>{fmt(tariff.bump)} ₽</b>
         </div>
       </div>
 
@@ -674,27 +543,10 @@ function CalcPage({ products, playerokRate }) {
         {ws > 0 && row(`Профит воркера (${ws}%)`, `+${fmt(workerAmount)} ₽`, "var(--text2)")}
         {row("Профит Admin", `${adminAmount >= 0 ? "+" : ""}${fmt(adminAmount)} ₽`, adminAmount >= 0 ? "var(--success)" : "var(--danger)")}
 
-        <div
-          className="note-box"
-          style={{
-            marginTop: 14,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
-            Итого Admin
-          </span>
-          <span
-            style={{
-              fontSize: 26,
-              fontWeight: 800,
-              color: adminAmount >= 0 ? "var(--success)" : "var(--danger)",
-            }}
-          >
-            {adminAmount >= 0 ? "+" : ""}
-            {fmt(adminAmount)} ₽
+        <div className="note-box" style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Итого Admin</span>
+          <span style={{ fontSize: 26, fontWeight: 800, color: adminAmount >= 0 ? "var(--success)" : "var(--danger)" }}>
+            {adminAmount >= 0 ? "+" : ""}{fmt(adminAmount)} ₽
           </span>
         </div>
       </div>
@@ -714,30 +566,14 @@ function CatalogPage({
   showToast,
 }) {
   const [activeCat, setActiveCat] = useState("all");
-  const filtered =
-    activeCat === "all"
-      ? products
-      : products.filter((p) => Number(p.category_id) === Number(activeCat));
+  const filtered = activeCat === "all" ? products : products.filter((p) => Number(p.category_id) === Number(activeCat));
 
   return (
     <div className="pa">
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 14,
-          gap: 10,
-          flexWrap: "wrap",
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {[{ id: "all", name: "Все" }, ...categories].map((c) => (
-            <button
-              key={c.id}
-              className={activeCat == c.id ? "chip active" : "chip"}
-              onClick={() => setActiveCat(c.id)}
-            >
+            <button key={c.id} className={activeCat == c.id ? "chip active" : "chip"} onClick={() => setActiveCat(c.id)}>
               {c.name}
             </button>
           ))}
@@ -749,7 +585,7 @@ function CatalogPage({
               <Icon name="folder" size={12} /> + Категория
             </button>
             <button className="btn-p" onClick={() => openM("addProduct")}>
-              <Icon name="plus" size={12} color="#000" /> + Товар
+              <Icon name="plus" size={12} color="#fff" /> + Товар
             </button>
           </div>
         )}
@@ -761,10 +597,8 @@ function CatalogPage({
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
             {categories.map((c) => (
               <div key={c.id} className="cat-pill">
-                <Icon name="folder" size={11} color="#fff" />
-                <span style={{ fontSize: 12, color: "var(--text)", fontWeight: 500 }}>
-                  {c.name}
-                </span>
+                <Icon name="folder" size={11} color="#d8b4fe" />
+                <span style={{ fontSize: 12, color: "var(--text)", fontWeight: 500 }}>{c.name}</span>
                 <button
                   className="btn-i d"
                   style={{ width: 18, height: 18, borderRadius: 4, marginLeft: 2 }}
@@ -783,13 +617,7 @@ function CatalogPage({
         </div>
       )}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill,minmax(235px,1fr))",
-          gap: 12,
-        }}
-      >
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(235px,1fr))", gap: 12 }}>
         {filtered.map((p, i) => {
           const profit = Math.round(
             calcProfit({
@@ -804,42 +632,15 @@ function CatalogPage({
           const category = categories.find((c) => Number(c.id) === Number(p.category_id));
 
           return (
-            <div
-              key={p.id}
-              className="card soft-rise"
-              style={{ padding: 15, animation: `fadeUp .25s ease ${i * 0.03}s both` }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  marginBottom: 7,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "var(--text)",
-                    lineHeight: 1.3,
-                    flex: 1,
-                    marginRight: 6,
-                  }}
-                >
+            <div key={p.id} className="card soft-rise" style={{ padding: 15, animation: `fadeUp .25s ease ${i * 0.03}s both` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 7 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", lineHeight: 1.3, flex: 1, marginRight: 6 }}>
                   {p.name}
                 </div>
 
                 {isAdmin && (
                   <div style={{ display: "flex", gap: 3 }}>
-                    <button
-                      className="btn-i"
-                      style={{ width: 22, height: 22, borderRadius: 5 }}
-                      onClick={() => {
-                        setEditTarget(p);
-                        openM("editProduct");
-                      }}
-                    >
+                    <button className="btn-i" style={{ width: 22, height: 22, borderRadius: 5 }} onClick={() => { setEditTarget(p); openM("editProduct"); }}>
                       <Icon name="edit" size={11} />
                     </button>
                     <button
@@ -860,25 +661,15 @@ function CatalogPage({
 
               <div className="cat-tag">{category?.name || "Без категории"}</div>
 
-              <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>
-                {fmt(p.sale_price_rub)} ₽
-              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>{fmt(p.sale_price_rub)} ₽</div>
               <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
                 Закуп: ${fmtF(p.purchase_usd)} · Комиссия: {p.sale_commission || 10}%
               </div>
               <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 4 }}>
                 Выставление: {fmt(tariff.listing)} ₽ · Поднятие: {fmt(tariff.bump)} ₽
               </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: profit >= 0 ? "var(--success)" : "var(--danger)",
-                  marginTop: 6,
-                }}
-              >
-                {profit >= 0 ? "+" : ""}
-                {fmt(profit)} ₽ / ед
+              <div style={{ fontSize: 12, fontWeight: 700, color: profit >= 0 ? "var(--success)" : "var(--danger)", marginTop: 6 }}>
+                {profit >= 0 ? "+" : ""}{fmt(profit)} ₽ / ед
               </div>
               <div style={{ marginTop: 9 }}>
                 <Badge status={p.status || "active"} />
@@ -887,11 +678,7 @@ function CatalogPage({
           );
         })}
 
-        {!filtered.length && (
-          <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "var(--text3)" }}>
-            Товаров нет
-          </div>
-        )}
+        {!filtered.length && <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "var(--text3)" }}>Товаров нет</div>}
       </div>
     </div>
   );
@@ -919,20 +706,8 @@ function RatePage({ googleRate, setGR, playerokRate, setPR, isAdmin, showToast }
 
   const block = (title, value, children) => (
     <div className="card" style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", marginBottom: 8 }}>
-        {title}
-      </div>
-      <div
-        style={{
-          fontSize: 34,
-          fontWeight: 800,
-          letterSpacing: "-.03em",
-          marginBottom: 10,
-          color: "var(--text)",
-        }}
-      >
-        {value}
-      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.03em", marginBottom: 10, color: "var(--text)" }}>{value}</div>
       {children}
     </div>
   );
@@ -944,12 +719,7 @@ function RatePage({ googleRate, setGR, playerokRate, setPR, isAdmin, showToast }
         `${fmtF(googleRate)} ₽`,
         <div>
           <button className="btn-g" onClick={doFetch} disabled={fetching}>
-            <span
-              style={{
-                display: "inline-block",
-                animation: fetching ? "spin 1s linear infinite" : "none",
-              }}
-            >
+            <span style={{ display: "inline-block", animation: fetching ? "spin 1s linear infinite" : "none" }}>
               <Icon name="refresh" size={12} />
             </span>
             {fetching ? "Загружаем..." : "Обновить"}
@@ -962,14 +732,7 @@ function RatePage({ googleRate, setGR, playerokRate, setPR, isAdmin, showToast }
         `${fmtF(playerokRate)} ₽`,
         isAdmin ? (
           <div style={{ display: "flex", gap: 8 }}>
-            <input
-              type="number"
-              value={pInput}
-              onChange={(e) => setPInput(e.target.value)}
-              step="0.1"
-              className="fi"
-              style={{ width: 120 }}
-            />
+            <input type="number" value={pInput} onChange={(e) => setPInput(e.target.value)} step="0.1" className="fi" style={{ width: 120 }} />
             <button
               className="btn-p"
               onClick={() => {
@@ -987,31 +750,148 @@ function RatePage({ googleRate, setGR, playerokRate, setPR, isAdmin, showToast }
           <div style={{ fontSize: 12, color: "var(--text3)" }}>Устанавливается только admin</div>
         )
       )}
+    </div>
+  );
+}
 
-      <div className="card">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          {[
-            ["Google", googleRate],
-            ["Playerok", playerokRate],
-            ["Разница", Math.abs(googleRate - playerokRate)],
-          ].map(([l, v]) => (
-            <div key={l} className="mini-stat">
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text3)",
-                  textTransform: "uppercase",
-                  letterSpacing: ".08em",
-                  marginBottom: 5,
-                }}
-              >
-                {l}
+function WorkDaysPage({
+  workDays,
+  currentOpenDayId,
+  openWorkDay,
+  closeCurrentWorkDay,
+  selectedWorkDayId,
+  setSelectedWorkDayId,
+  getWorkDayStats,
+  products,
+  categories,
+}) {
+  const selected = workDays.find((d) => d.id === selectedWorkDayId) || null;
+  const selectedStats = selected ? getWorkDayStats(selected) : null;
+
+  return (
+    <div className="pa">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12, color: "var(--text3)" }}>
+          История рабочих дней
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn-p" onClick={openWorkDay}>
+            <Icon name="plus" size={12} color="#fff" /> Открыть рабочий день
+          </button>
+          <button className="btn-g" onClick={closeCurrentWorkDay}>
+            Закрыть рабочий день
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 14 }}>
+        <div className="card" style={{ padding: 12 }}>
+          <div className="section-caption">Даты</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {workDays.map((d) => {
+              const stats = getWorkDayStats(d);
+              const isActive = d.id === selectedWorkDayId;
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => setSelectedWorkDayId(d.id)}
+                  style={{
+                    textAlign: "left",
+                    padding: "11px 12px",
+                    borderRadius: 12,
+                    border: `1px solid ${isActive ? "rgba(168,85,247,.35)" : "var(--border)"}`,
+                    background: isActive ? "rgba(168,85,247,.08)" : "#111",
+                    color: "var(--text)",
+                    cursor: "pointer",
+                    transition: "all .15s ease",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontWeight: 700 }}>{toRuDate(d.date)}</div>
+                    <Badge status={d.status} />
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 4 }}>
+                    {stats.qty} продаж · {stats.net >= 0 ? "+" : ""}{fmt(stats.net)} ₽
+                  </div>
+                </button>
+              );
+            })}
+            {!workDays.length && <div style={{ color: "var(--text3)", fontSize: 12 }}>Рабочих дней пока нет</div>}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 14 }}>
+          {!selected && <div style={{ color: "var(--text3)" }}>Выбери рабочий день слева</div>}
+
+          {selected && selectedStats && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800 }}>{toRuDate(selected.date)}</div>
+                  <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 3 }}>
+                    {selectedStats.qty} продаж · выставление {fmt(selectedStats.listing)} ₽ · поднятия {fmt(selectedStats.bumps)} ₽
+                  </div>
+                </div>
+                <Badge status={selected.status} />
               </div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: "var(--text)" }}>
-                {fmtF(v)} ₽
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 14 }}>
+                <MetricCard label="Продажи" value={String(selectedStats.qty)} />
+                <MetricCard label="Профит" value={`${selectedStats.net >= 0 ? "+" : ""}${fmt(selectedStats.net)} ₽`} />
+                <MetricCard label="Оборот" value={`${fmt(selectedStats.revenue)} ₽`} />
               </div>
-            </div>
-          ))}
+
+              <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Товар</th>
+                      <th>Категория</th>
+                      <th>Цена</th>
+                      <th>Комиссия</th>
+                      <th>Выставление</th>
+                      <th>Поднятие</th>
+                      <th>Профит</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selected.orders.map((o) => {
+                      const p = products.find((x) => Number(x.id) === Number(o.product_id));
+                      const c = categories.find((x) => Number(x.id) === Number(p?.category_id));
+                      if (!p) return null;
+                      const tariff = getTariffByPrice(o.sale_price, p.sale_commission);
+                      const profit = calcProfit({
+                        salePrice: o.sale_price,
+                        buyUsd: p.purchase_usd,
+                        playerokRate: selected.playerokRate,
+                        saleCommission: p.sale_commission,
+                      });
+                      const net = profit - Number(o.bump_amount || 0) - tariff.listing;
+
+                      return (
+                        <tr key={o.id} className="tr">
+                          <td style={{ fontWeight: 700 }}>{p.name}</td>
+                          <td>{c?.name || "—"}</td>
+                          <td>{fmt(o.sale_price)} ₽</td>
+                          <td>{p.sale_commission}%</td>
+                          <td>{fmt(tariff.listing)} ₽</td>
+                          <td>{fmt(o.bump_amount || 0)} ₽</td>
+                          <td style={{ fontWeight: 700 }}>{net >= 0 ? "+" : ""}{fmt(net)} ₽</td>
+                        </tr>
+                      );
+                    })}
+                    {!selected.orders.length && (
+                      <tr>
+                        <td colSpan={7} style={{ textAlign: "center", color: "var(--text3)" }}>
+                          Продаж нет
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1032,12 +912,7 @@ function AddCategoryModal({ open, onClose, onAdd }) {
 
   return (
     <Modal open={open} onClose={onClose} title="Добавить категорию">
-      <FI
-        label="Название"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Steam"
-      />
+      <FI label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Steam" />
       <MFoot onClose={onClose} onSubmit={submit} label="Добавить" />
     </Modal>
   );
@@ -1064,7 +939,6 @@ function AddProductModal({ open, onClose, categories, onAdd }) {
 
   const submit = () => {
     if (!name.trim() || !categoryId || !salePrice) return;
-
     onAdd({
       name: name.trim(),
       category_id: Number(categoryId),
@@ -1077,12 +951,7 @@ function AddProductModal({ open, onClose, categories, onAdd }) {
 
   return (
     <Modal open={open} onClose={onClose} title="Добавить товар">
-      <FI
-        label="Название"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Steam 20$"
-      />
+      <FI label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Steam 20$" />
       <FS
         label="Категория"
         value={categoryId}
@@ -1092,22 +961,10 @@ function AddProductModal({ open, onClose, categories, onAdd }) {
           ...categories.map((c) => ({ value: c.id, label: c.name })),
         ]}
       />
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI
-          label="Цена товара (₽)"
-          type="number"
-          value={salePrice}
-          onChange={(e) => setSalePrice(e.target.value)}
-        />
-        <FI
-          label="Закупка ($)"
-          type="number"
-          value={purchaseUsd}
-          onChange={(e) => setPurchaseUsd(e.target.value)}
-        />
+        <FI label="Цена товара (₽)" type="number" value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
+        <FI label="Закупка ($)" type="number" value={purchaseUsd} onChange={(e) => setPurchaseUsd(e.target.value)} />
       </div>
-
       <FS
         label="Комиссия с продажи"
         value={saleCommission}
@@ -1117,11 +974,9 @@ function AddProductModal({ open, onClose, categories, onAdd }) {
           { value: 20, label: "20%" },
         ]}
       />
-
       <div className="note-box" style={{ marginTop: 10 }}>
         Выставление: <b>{fmt(tariff.listing)} ₽</b> · Поднятие: <b>{fmt(tariff.bump)} ₽</b>
       </div>
-
       <MFoot onClose={onClose} onSubmit={submit} label="Добавить" />
     </Modal>
   );
@@ -1159,11 +1014,7 @@ function EditProductModal({ open, onClose, product, categories, onSave }) {
 
   return (
     <Modal open={open} onClose={onClose} title="Редактировать товар">
-      <FI
-        label="Название"
-        value={form.name}
-        onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
-      />
+      <FI label="Название" value={form.name} onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))} />
       <FS
         label="Категория"
         value={form.category_id}
@@ -1171,32 +1022,18 @@ function EditProductModal({ open, onClose, product, categories, onSave }) {
         options={categories.map((c) => ({ value: c.id, label: c.name }))}
       />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI
-          label="Цена товара (₽)"
-          type="number"
-          value={form.sale_price_rub}
-          onChange={(e) => setForm((s) => ({ ...s, sale_price_rub: e.target.value }))}
-        />
-        <FI
-          label="Закупка ($)"
-          type="number"
-          value={form.purchase_usd}
-          onChange={(e) => setForm((s) => ({ ...s, purchase_usd: e.target.value }))}
-        />
+        <FI label="Цена товара (₽)" type="number" value={form.sale_price_rub} onChange={(e) => setForm((s) => ({ ...s, sale_price_rub: e.target.value }))} />
+        <FI label="Закупка ($)" type="number" value={form.purchase_usd} onChange={(e) => setForm((s) => ({ ...s, purchase_usd: e.target.value }))} />
       </div>
-
       <FS
         label="Комиссия с продажи"
         value={form.sale_commission}
-        onChange={(e) =>
-          setForm((s) => ({ ...s, sale_commission: Number(e.target.value) }))
-        }
+        onChange={(e) => setForm((s) => ({ ...s, sale_commission: Number(e.target.value) }))}
         options={[
           { value: 10, label: "10%" },
           { value: 20, label: "20%" },
         ]}
       />
-
       <FS
         label="Статус"
         value={form.status}
@@ -1206,51 +1043,10 @@ function EditProductModal({ open, onClose, product, categories, onSave }) {
           { value: "inactive", label: "Неактивен" },
         ]}
       />
-
       <div className="note-box" style={{ marginTop: 10 }}>
         Выставление: <b>{fmt(tariff.listing)} ₽</b> · Поднятие: <b>{fmt(tariff.bump)} ₽</b>
       </div>
-
       <MFoot onClose={onClose} onSubmit={submit} label="Сохранить" />
-    </Modal>
-  );
-}
-
-function AddSheetModal({ open, onClose, workers, isAdmin, onAdd }) {
-  const [name, setName] = useState("");
-  const [workerId, setWorkerId] = useState("");
-
-  useEffect(() => {
-    if (open) {
-      setName(new Date().toLocaleDateString("ru-RU"));
-      setWorkerId("");
-    }
-  }, [open]);
-
-  const submit = () => {
-    if (!name.trim()) return;
-    onAdd({
-      name: name.trim(),
-      status: "open",
-      worker_id: workerId ? Number(workerId) : null,
-    });
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Новый лист">
-      <FI label="Название листа" value={name} onChange={(e) => setName(e.target.value)} />
-      {isAdmin && (
-        <FS
-          label="Кому принадлежит"
-          value={workerId}
-          onChange={(e) => setWorkerId(e.target.value)}
-          options={[
-            { value: "", label: "Admin" },
-            ...workers.map((w) => ({ value: w.id, label: w.name })),
-          ]}
-        />
-      )}
-      <MFoot onClose={onClose} onSubmit={submit} label="Создать" />
     </Modal>
   );
 }
@@ -1287,81 +1083,22 @@ function AddWorkerModal({ open, onClose, onAdd }) {
   );
 }
 
-function AddOrderModal({ open, onClose, products, sheets, onAdd }) {
-  const [pid, setPid] = useState("");
-  const [sp, setSp] = useState("");
-  const [bm, setBm] = useState(0);
-  const [sid, setSid] = useState("");
-
-  useEffect(() => {
-    if (open) {
-      setSid(sheets[0]?.id || "");
-      setPid("");
-      setSp("");
-      setBm(0);
-    }
-  }, [open, sheets]);
-
-  useEffect(() => {
-    const p = products.find((x) => Number(x.id) === Number(pid));
-    if (p) {
-      setSp(p.sale_price_rub);
-      setBm(getTariffByPrice(p.sale_price_rub, p.sale_commission).bump);
-    }
-  }, [pid, products]);
-
-  const submit = () => {
-    if (!pid || !sp || !sid) return;
-    onAdd({
-      sheet_id: Number(sid),
-      product_id: Number(pid),
-      sale_price: Number(sp),
-      bumps: Number(bm) || 0,
-      status: "sold",
-    });
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Добавить продажу">
-      <FS
-        label="Товар"
-        value={pid}
-        onChange={(e) => setPid(e.target.value)}
-        options={[
-          { value: "", label: "— выберите —" },
-          ...products.map((p) => ({ value: p.id, label: p.name })),
-        ]}
-      />
-      <FS
-        label="Лист"
-        value={sid}
-        onChange={(e) => setSid(e.target.value)}
-        options={sheets.map((s) => ({ value: s.id, label: s.name }))}
-      />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI label="Цена продажи (₽)" type="number" value={sp} onChange={(e) => setSp(e.target.value)} />
-        <FI label="Поднятия (₽)" type="number" value={bm} onChange={(e) => setBm(e.target.value)} />
-      </div>
-      <MFoot onClose={onClose} onSubmit={submit} label="Добавить" />
-    </Modal>
-  );
-}
-
 const GLOBAL_STYLES = `
 :root{
-  --bg:#060606;
-  --bg2:#0b0b0b;
-  --bg3:#111111;
-  --card:rgba(16,16,16,.96);
-  --border:rgba(255,255,255,.08);
-  --border2:rgba(255,255,255,.14);
-  --text:#f5f5f5;
-  --text2:#d4d4d8;
-  --text3:#8b8b92;
-  --accent:#ffffff;
-  --success:#ffffff;
-  --danger:#b0b0b6;
-  --warning:#d4d4d8;
+  --bg:#07050a;
+  --bg2:#0d0913;
+  --bg3:#140f1d;
+  --card:rgba(18,12,24,.96);
+  --border:rgba(168,85,247,.12);
+  --border2:rgba(168,85,247,.24);
+  --text:#f5ebff;
+  --text2:#dccff3;
+  --text3:#9f91b9;
+  --accent:#a855f7;
+  --accent2:#7e22ce;
+  --success:#f2e7ff;
+  --danger:#cbbad9;
+  --warning:#d8b4fe;
   --r:12px;
   --r2:18px;
 }
@@ -1369,25 +1106,25 @@ const GLOBAL_STYLES = `
 html,body,#root{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
 body{
   background:
-  radial-gradient(circle at top left, rgba(255,255,255,.035), transparent 28%),
-  radial-gradient(circle at bottom right, rgba(255,255,255,.025), transparent 26%),
-  var(--bg)
+  radial-gradient(circle at top left, rgba(168,85,247,.08), transparent 28%),
+  radial-gradient(circle at bottom right, rgba(126,34,206,.08), transparent 26%),
+  #07050a
 }
 .pa{animation:fadeIn .22s ease}
 .card{
-  background:linear-gradient(180deg, rgba(19,19,19,.96), rgba(13,13,13,.96));
+  background:linear-gradient(180deg, rgba(24,16,31,.96), rgba(16,10,22,.96));
   border:1px solid var(--border);
   border-radius:var(--r2);
   padding:16px;
-  box-shadow:0 12px 34px rgba(0,0,0,.28);
+  box-shadow:0 12px 34px rgba(0,0,0,.32);
   backdrop-filter:blur(8px);
 }
 .soft-rise{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
-.soft-rise:hover{transform:translateY(-2px);border-color:var(--border2);box-shadow:0 18px 42px rgba(0,0,0,.34)}
+.soft-rise:hover{transform:translateY(-2px);border-color:var(--border2);box-shadow:0 18px 42px rgba(0,0,0,.36)}
 .fi{
   width:100%;
-  background:#0d0d0d;
-  border:1px solid rgba(255,255,255,.1);
+  background:#110d17;
+  border:1px solid rgba(168,85,247,.16);
   border-radius:12px;
   color:var(--text);
   padding:11px 12px;
@@ -1396,16 +1133,16 @@ body{
   transition:border-color .16s ease, box-shadow .16s ease;
 }
 .fi:focus{
-  border-color:rgba(255,255,255,.28);
-  box-shadow:0 0 0 4px rgba(255,255,255,.05);
+  border-color:rgba(168,85,247,.5);
+  box-shadow:0 0 0 4px rgba(168,85,247,.12);
 }
 .btn-p,.btn-g,.btn-i,.cnt,.chip,.switcher-btn,.auth-submit{
   border:none;
   font-family:inherit;
 }
 .btn-p{
-  background:#fff;
-  color:#000;
+  background:linear-gradient(135deg,#a855f7,#7e22ce);
+  color:#fff;
   border-radius:10px;
   padding:9px 13px;
   font-size:12px;
@@ -1415,12 +1152,12 @@ body{
   align-items:center;
   gap:7px;
   transition:transform .12s ease, opacity .12s ease;
-  box-shadow:0 8px 26px rgba(255,255,255,.08);
+  box-shadow:0 8px 26px rgba(168,85,247,.22);
 }
 .btn-p:hover{transform:translateY(-1px)}
 .btn-p:active{transform:scale(.97)}
 .btn-g{
-  background:#111;
+  background:#140f1d;
   color:var(--text);
   border:1px solid var(--border);
   border-radius:10px;
@@ -1433,12 +1170,12 @@ body{
   gap:7px;
   transition:transform .12s ease,border-color .16s ease,background .16s ease;
 }
-.btn-g:hover{transform:translateY(-1px);border-color:var(--border2);background:#141414}
+.btn-g:hover{transform:translateY(-1px);border-color:var(--border2);background:#181221}
 .btn-i{
   width:26px;
   height:26px;
   border-radius:8px;
-  background:#111;
+  background:#130f1b;
   color:var(--text2);
   border:1px solid var(--border);
   display:grid;
@@ -1447,7 +1184,7 @@ body{
   transition:all .14s ease;
 }
 .btn-i:hover{border-color:var(--border2);color:#fff;transform:translateY(-1px)}
-.btn-i.d:hover{background:#171717}
+.btn-i.d:hover{background:#1a1323}
 .badge{
   display:inline-flex;
   align-items:center;
@@ -1462,7 +1199,7 @@ body{
   width:26px;
   height:26px;
   border-radius:8px;
-  background:#111;
+  background:#130f1b;
   color:#fff;
   border:1px solid var(--border);
   cursor:pointer;
@@ -1482,11 +1219,11 @@ body{
   cursor:pointer;
   transition:all .14s ease;
 }
-.nav-item:hover{background:#111;color:var(--text)}
+.nav-item:hover{background:#171120;color:var(--text)}
 .nav-item.active{
-  background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+  background:linear-gradient(180deg, rgba(168,85,247,.16), rgba(168,85,247,.08));
   color:#fff;
-  border:1px solid rgba(255,255,255,.12);
+  border:1px solid rgba(168,85,247,.28);
 }
 table{width:100%;border-collapse:collapse}
 th{
@@ -1501,12 +1238,12 @@ th{
 }
 td{
   padding:12px 14px;
-  border-bottom:1px solid rgba(255,255,255,.05);
+  border-bottom:1px solid rgba(168,85,247,.08);
   font-size:12px;
 }
-.tr:hover{background:rgba(255,255,255,.02)}
+.tr:hover{background:rgba(168,85,247,.04)}
 .block-title{
-  fontSize:13px;
+  font-size:13px;
   font-weight:800;
   color:var(--text);
   margin-bottom:14px;
@@ -1515,8 +1252,8 @@ td{
 }
 .note-box{
   padding:13px 14px;
-  background:rgba(255,255,255,.03);
-  border:1px solid rgba(255,255,255,.08);
+  background:rgba(168,85,247,.06);
+  border:1px solid rgba(168,85,247,.14);
   border-radius:12px;
   color:var(--text2);
   font-size:12px;
@@ -1532,7 +1269,7 @@ td{
 .chip{
   padding:6px 12px;
   border-radius:999px;
-  background:#111;
+  background:#140f1d;
   color:var(--text2);
   border:1px solid var(--border);
   font-size:12px;
@@ -1540,41 +1277,41 @@ td{
   cursor:pointer;
   transition:all .14s ease;
 }
-.chip.active{background:#fff;color:#000;border-color:#fff}
+.chip.active{background:linear-gradient(135deg,#a855f7,#7e22ce);color:#fff;border-color:#a855f7}
 .cat-pill{
   display:flex;
   align-items:center;
   gap:5px;
   padding:5px 9px;
-  background:#111;
+  background:#140f1d;
   border-radius:9px;
   border:1px solid var(--border);
 }
 .cat-tag{
   font-size:11px;
-  color:#fff;
-  background:rgba(255,255,255,.06);
+  color:#f3e8ff;
+  background:rgba(168,85,247,.12);
   display:inline-block;
   padding:3px 8px;
   border-radius:7px;
   margin-bottom:9px;
-  border:1px solid rgba(255,255,255,.08);
+  border:1px solid rgba(168,85,247,.18);
 }
 .mini-stat{
   text-align:center;
-  background:#101010;
+  background:#130f1b;
   border-radius:12px;
   border:1px solid var(--border);
   padding:12px 6px;
 }
 .error-box{
   font-size:12px;
-  color:#e4e4e7;
+  color:#f3e8ff;
   padding:9px 11px;
-  background:rgba(255,255,255,.05);
+  background:rgba(168,85,247,.08);
   border-radius:10px;
   margin-bottom:12px;
-  border:1px solid rgba(255,255,255,.1);
+  border:1px solid rgba(168,85,247,.18);
 }
 .auth-wrap{
   min-height:100vh;
@@ -1583,21 +1320,21 @@ td{
   justify-content:center;
   position:relative;
   overflow:hidden;
-  background:#050505;
+  background:#07050a;
 }
 .auth-glow{
   position:fixed;
   inset:0;
   background:
-   radial-gradient(circle at 20% 20%, rgba(255,255,255,.04), transparent 26%),
-   radial-gradient(circle at 80% 80%, rgba(255,255,255,.025), transparent 28%);
+   radial-gradient(circle at 20% 20%, rgba(168,85,247,.09), transparent 26%),
+   radial-gradient(circle at 80% 80%, rgba(126,34,206,.08), transparent 28%);
   pointer-events:none;
 }
 .auth-card{
   width:390px;
   max-width:94vw;
-  background:rgba(15,15,15,.96);
-  border:1px solid rgba(255,255,255,.1);
+  background:rgba(18,12,24,.96);
+  border:1px solid rgba(168,85,247,.16);
   border-radius:22px;
   padding:34px 32px;
   box-shadow:0 40px 100px rgba(0,0,0,.6);
@@ -1609,18 +1346,18 @@ td{
   width:46px;
   height:46px;
   border-radius:14px;
-  background:#fff;
-  color:#000;
+  background:linear-gradient(135deg,#a855f7,#7e22ce);
+  color:#fff;
   display:flex;
   align-items:center;
   justify-content:center;
   font-size:20px;
   margin:0 auto 12px;
-  box-shadow:0 10px 30px rgba(255,255,255,.08);
+  box-shadow:0 10px 30px rgba(168,85,247,.18);
 }
 .switcher{
   display:flex;
-  background:#0d0d0d;
+  background:#110d17;
   border-radius:12px;
   padding:3px;
   margin-bottom:20px;
@@ -1639,15 +1376,15 @@ td{
   color:var(--text3);
 }
 .switcher-btn.active{
-  background:#fff;
-  color:#000;
+  background:linear-gradient(135deg,#a855f7,#7e22ce);
+  color:#fff;
 }
 .auth-submit{
   width:100%;
   padding:11px;
   border-radius:12px;
-  background:#fff;
-  color:#000;
+  background:linear-gradient(135deg,#a855f7,#7e22ce);
+  color:#fff;
   font-size:14px;
   font-weight:800;
   cursor:pointer;
@@ -1661,9 +1398,9 @@ td{
 @keyframes slideR{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 @media (max-width: 1100px){
-  .grid-4{grid-template-columns:repeat(2,1fr)!important}
+  .grid-3{grid-template-columns:repeat(2,1fr)!important}
 }
-@media (max-width: 840px){
+@media (max-width: 900px){
   .mobile-stack{grid-template-columns:1fr!important}
 }
 `;
@@ -1674,17 +1411,15 @@ export default function App() {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [sheets, setSheets] = useState([]);
-  const [sheetOrders, setSheetOrders] = useState([]);
-  const [sheetBumps, setSheetBumps] = useState([]);
   const [workers, setWorkers] = useState([]);
 
   const [googleRate, _setGR] = useState(() => ls(LS.googleRate, 91.4));
   const [playerokRate, _setPR] = useState(() => ls(LS.playerokRate, 88.0));
-  const [closedSnaps, setClosedSnaps] = useState(() => ls(LS.closedSnaps, {}));
   const [workerShares, setWorkerShares] = useState(() => ls(LS.workerShares, {}));
   const [dailyCounts, setDailyCounts] = useState(() => ls(LS.dailyCounts, {}));
+  const [workDays, setWorkDays] = useState(() => ls(LS.workDays, []));
 
+  const [selectedWorkDayId, setSelectedWorkDayId] = useState(null);
   const [modals, setModals] = useState({});
   const [editTarget, setEditTarget] = useState(null);
 
@@ -1704,17 +1439,24 @@ export default function App() {
   const closeM = (name) => setModals((m) => ({ ...m, [name]: false }));
 
   useEffect(() => {
+    lsSet(LS.workDays, workDays);
+  }, [workDays]);
+
+  useEffect(() => {
+    lsSet(LS.workerShares, workerShares);
+  }, [workerShares]);
+
+  useEffect(() => {
+    lsSet(LS.dailyCounts, dailyCounts);
+  }, [dailyCounts]);
+
+  useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) return;
-      supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single()
-        .then(({ data: p }) => {
-          setAuth({ user: session.user, role: p?.role || "admin", session });
-        });
+      supabase.from("profiles").select("role").eq("id", session.user.id).single().then(({ data: p }) => {
+        setAuth({ user: session.user, role: p?.role || "admin", session });
+      });
     });
   }, []);
 
@@ -1730,94 +1472,46 @@ export default function App() {
     ]);
 
     setProducts([
-      {
-        id: 1,
-        name: "Steam 10$",
-        category_id: 1,
-        category: "Steam",
-        sale_price_rub: 1050,
-        purchase_usd: 10,
-        sale_commission: 10,
-        status: "active",
-      },
-      {
-        id: 2,
-        name: "Steam 20$",
-        category_id: 1,
-        category: "Steam",
-        sale_price_rub: 2050,
-        purchase_usd: 20,
-        sale_commission: 10,
-        status: "active",
-      },
-      {
-        id: 3,
-        name: "Valorant 1000VP",
-        category_id: 2,
-        category: "Valorant",
-        sale_price_rub: 750,
-        purchase_usd: 7.5,
-        sale_commission: 20,
-        status: "active",
-      },
-      {
-        id: 4,
-        name: "Roblox 400R$",
-        category_id: 3,
-        category: "Roblox",
-        sale_price_rub: 350,
-        purchase_usd: 3.5,
-        sale_commission: 10,
-        status: "active",
-      },
+      { id: 1, name: "Steam 10$", category_id: 1, category: "Steam", sale_price_rub: 1050, purchase_usd: 10, sale_commission: 10, status: "active" },
+      { id: 2, name: "Steam 20$", category_id: 1, category: "Steam", sale_price_rub: 2050, purchase_usd: 20, sale_commission: 10, status: "active" },
+      { id: 3, name: "Valorant 1000VP", category_id: 2, category: "Valorant", sale_price_rub: 750, purchase_usd: 7.5, sale_commission: 20, status: "active" },
+      { id: 4, name: "Roblox 400R$", category_id: 3, category: "Roblox", sale_price_rub: 350, purchase_usd: 3.5, sale_commission: 10, status: "active" },
     ]);
 
-    setSheets([
-      {
-        id: 1,
-        name: "20.04.2026",
-        status: "open",
-        worker_id: null,
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 2,
-        name: "19.04.2026",
-        status: "closed",
-        worker_id: 1,
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-      },
-    ]);
-
-    setSheetOrders([
-      {
-        id: 1,
-        sheet_id: 1,
-        product_id: 1,
-        sale_price: 1050,
-        status: "sold",
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 2,
-        sheet_id: 1,
-        product_id: 3,
-        sale_price: 750,
-        status: "sold",
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 3,
-        sheet_id: 2,
-        product_id: 2,
-        sale_price: 2050,
-        status: "sold",
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-      },
-    ]);
-
-    setSheetBumps([{ id: 1, sheet_id: 1, amount: 80, created_at: new Date().toISOString() }]);
     setWorkers([{ id: 1, name: "Артём", key: "worker-demo", share: 50 }]);
+
+    const demoDays = ls(LS.workDays, []);
+    if (!demoDays.length) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const yIso = yesterday.toISOString().slice(0, 10);
+      const tIso = todayKey();
+
+      const sample = [
+        {
+          id: 1001,
+          date: yIso,
+          status: "closed",
+          playerokRate: 88,
+          orders: [
+            { id: 1, product_id: 1, sale_price: 1050, bump_amount: 9, created_at: new Date(yesterday).toISOString() },
+            { id: 2, product_id: 2, sale_price: 2050, bump_amount: 25, created_at: new Date(yesterday).toISOString() },
+          ],
+        },
+        {
+          id: 1002,
+          date: tIso,
+          status: "open",
+          playerokRate: 88,
+          orders: [],
+        },
+      ];
+      setWorkDays(sample);
+      setSelectedWorkDayId(sample[0].id);
+    } else {
+      setSelectedWorkDayId(demoDays[0]?.id || null);
+    }
   };
 
   const loadData = async () => {
@@ -1828,190 +1522,159 @@ export default function App() {
 
     const isAdmin = auth?.role === "admin";
 
-    const [cats, prods, daySheets, orders, bumps, wks] = await Promise.all([
+    const [cats, prods, wks] = await Promise.all([
       supabase.from("categories").select("*").order("name"),
       supabase.from("products").select("*, categories(name)").order("name"),
-      isAdmin
-        ? supabase.from("day_sheets").select("*").order("created_at", { ascending: false })
-        : supabase
-            .from("day_sheets")
-            .select("*")
-            .eq("worker_id", auth.workerData?.id)
-            .order("created_at", { ascending: false }),
-      supabase.from("sheet_orders").select("*"),
-      supabase.from("sheet_bumps").select("*"),
       isAdmin ? supabase.from("worker_keys").select("*") : Promise.resolve({ data: [] }),
     ]);
 
     setCategories(cats.data || []);
-    setProducts(
-      (prods.data || []).map((p) => ({
-        ...p,
-        category: p.categories?.name || "",
-      }))
-    );
-    setSheets(daySheets.data || []);
-    setSheetOrders(orders.data || []);
-    setSheetBumps(bumps.data || []);
+    setProducts((prods.data || []).map((p) => ({ ...p, category: p.categories?.name || "" })));
     setWorkers(wks.data || []);
+    setSelectedWorkDayId((prev) => prev ?? ls(LS.workDays, [])[0]?.id ?? null);
   };
 
-  const getSheetProfit = useCallback(
-    (sheetId) => {
-      if (closedSnaps[sheetId]) return closedSnaps[sheetId];
+  const getWorkDayStats = useCallback((day) => {
+    if (!day) return { qty: 0, revenue: 0, listing: 0, bumps: 0, gross: 0, net: 0 };
 
-      const orders = sheetOrders.filter(
-        (o) => Number(o.sheet_id) === Number(sheetId) && o.status === "sold"
-      );
-      const bumpTotal = sheetBumps
-        .filter((b) => Number(b.sheet_id) === Number(sheetId))
-        .reduce((s, b) => s + Number(b.amount || 0), 0);
-
-      const gross = orders.reduce((sum, o) => {
+    const totals = day.orders.reduce(
+      (acc, o) => {
         const p = products.find((x) => Number(x.id) === Number(o.product_id));
-        if (!p) return sum;
-        return (
-          sum +
-          calcProfit({
-            salePrice: o.sale_price,
-            buyUsd: p.purchase_usd,
-            playerokRate,
-            saleCommission: p.sale_commission,
-          })
-        );
-      }, 0);
+        if (!p) return acc;
+        const tariff = getTariffByPrice(o.sale_price, p.sale_commission);
+        const gross = calcProfit({
+          salePrice: o.sale_price,
+          buyUsd: p.purchase_usd,
+          playerokRate: day.playerokRate || playerokRate,
+          saleCommission: p.sale_commission,
+        });
+        acc.qty += 1;
+        acc.revenue += Number(o.sale_price || 0);
+        acc.listing += tariff.listing;
+        acc.bumps += Number(o.bump_amount || 0);
+        acc.gross += gross;
+        acc.net += gross - tariff.listing - Number(o.bump_amount || 0);
+        return acc;
+      },
+      { qty: 0, revenue: 0, listing: 0, bumps: 0, gross: 0, net: 0 }
+    );
 
-      return {
-        gross: Math.round(gross),
-        bumps: Math.round(bumpTotal),
-        net: Math.round(gross - bumpTotal),
-      };
-    },
-    [sheetOrders, sheetBumps, products, playerokRate, closedSnaps]
-  );
+    return {
+      qty: Math.round(totals.qty),
+      revenue: Math.round(totals.revenue),
+      listing: Math.round(totals.listing),
+      bumps: Math.round(totals.bumps),
+      gross: Math.round(totals.gross),
+      net: Math.round(totals.net),
+    };
+  }, [products, playerokRate]);
 
-  const mySheets = sheets.filter((s) => !s.worker_id);
-  const workerSheets = sheets.filter((s) => !!s.worker_id);
+  const currentOpenDay = workDays.find((d) => d.status === "open") || null;
+  const currentOpenDayId = currentOpenDay?.id || null;
+  const currentOpenStats = currentOpenDay ? getWorkDayStats(currentOpenDay) : null;
 
-  const myProfit = mySheets.reduce((s, sh) => s + getSheetProfit(sh.id).net, 0);
-  const workerProfit = workerSheets.reduce(
-    (s, sh) =>
-      s +
-      Math.round(getSheetProfit(sh.id).net * ((workerShares[sh.id] ?? 50) / 100)),
-    0
-  );
-  const adminFromWorkers = workerSheets.reduce(
-    (s, sh) =>
-      s +
-      Math.round(
-        getSheetProfit(sh.id).net * ((100 - (workerShares[sh.id] ?? 50)) / 100)
-      ),
-    0
-  );
+  const openWorkDay = () => {
+    const existing = workDays.find((d) => d.status === "open");
+    if (existing) {
+      showToast("Рабочий день уже открыт", "err");
+      setSelectedWorkDayId(existing.id);
+      return;
+    }
+
+    const day = {
+      id: Date.now(),
+      date: todayKey(),
+      status: "open",
+      playerokRate,
+      orders: [],
+    };
+
+    const next = [day, ...workDays];
+    setWorkDays(next);
+    setSelectedWorkDayId(day.id);
+    showToast("Рабочий день открыт");
+  };
+
+  const closeCurrentWorkDay = () => {
+    const existing = workDays.find((d) => d.status === "open");
+    if (!existing) {
+      showToast("Нет открытого рабочего дня", "err");
+      return;
+    }
+
+    const next = workDays.map((d) =>
+      d.id === existing.id
+        ? { ...d, status: "closed", playerokRate: existing.playerokRate || playerokRate }
+        : d
+    );
+    setWorkDays(next);
+    showToast("Рабочий день закрыт");
+  };
+
+  const addOrderToCurrentDay = (productId, salePrice, bumpAmount = 0) => {
+    const openDay = workDays.find((d) => d.status === "open");
+    if (!openDay) {
+      showToast("Сначала открой рабочий день", "err");
+      return false;
+    }
+
+    const newOrder = {
+      id: Date.now(),
+      product_id: Number(productId),
+      sale_price: Number(salePrice),
+      bump_amount: Number(bumpAmount || 0),
+      created_at: new Date().toISOString(),
+    };
+
+    const next = workDays.map((d) =>
+      d.id === openDay.id ? { ...d, orders: [...d.orders, newOrder] } : d
+    );
+
+    setWorkDays(next);
+    setSelectedWorkDayId(openDay.id);
+    return true;
+  };
 
   const dk = todayKey();
   const dayEntry = dailyCounts[dk] || {};
 
   const updateDay = (productId, field, delta) => {
     const prev = dailyCounts[dk]?.[productId] || { qty: 0, bumps: 0 };
-    const next = {
-      ...prev,
-      [field]: Math.max(0, Number(prev[field] || 0) + Number(delta || 0)),
-    };
+    const next = { ...prev, [field]: Math.max(0, Number(prev[field] || 0) + Number(delta || 0)) };
     const upd = { ...dailyCounts, [dk]: { ...(dailyCounts[dk] || {}), [productId]: next } };
     setDailyCounts(upd);
-    lsSet(LS.dailyCounts, upd);
   };
 
-  const totalQtyToday = Object.values(dayEntry).reduce(
-    (s, e) => s + Number(e.qty || 0),
-    0
-  );
-  const totalBumpsToday = Object.values(dayEntry).reduce(
-    (s, e) => s + Number(e.bumps || 0),
-    0
-  );
+  const totalQtyToday = Object.values(dayEntry).reduce((s, e) => s + Number(e.qty || 0), 0);
+  const totalBumpsToday = Object.values(dayEntry).reduce((s, e) => s + Number(e.bumps || 0), 0);
 
   const grossToday = products.reduce((sum, p) => {
     const e = dayEntry[p.id] || { qty: 0 };
-    return (
-      sum +
-      Math.round(
-        calcProfit({
-          salePrice: p.sale_price_rub,
-          buyUsd: p.purchase_usd,
-          playerokRate,
-          saleCommission: p.sale_commission,
-        })
-      ) *
-        Number(e.qty || 0)
-    );
+    return sum + Math.round(calcProfit({
+      salePrice: p.sale_price_rub,
+      buyUsd: p.purchase_usd,
+      playerokRate,
+      saleCommission: p.sale_commission,
+    })) * Number(e.qty || 0);
   }, 0);
 
   const netToday = grossToday - totalBumpsToday;
 
-  const closeSheet = async (id) => {
-    const snap = getSheetProfit(id);
-    const next = { ...closedSnaps, [id]: snap };
-    setClosedSnaps(next);
-    lsSet(LS.closedSnaps, next);
+  const closedDaysProfit = workDays
+    .filter((d) => d.status === "closed")
+    .reduce((s, d) => s + getWorkDayStats(d).net, 0);
 
-    if (supabase) await supabase.from("day_sheets").update({ status: "closed" }).eq("id", id);
-    setSheets((s) => s.map((x) => (x.id === id ? { ...x, status: "closed" } : x)));
-    showToast("Лист закрыт");
-  };
+  const openDayProfit = currentOpenDay ? getWorkDayStats(currentOpenDay).net : 0;
+  const totalProfit = closedDaysProfit + openDayProfit;
 
-  const deleteSheet = async (id) => {
-    if (!window.confirm("Удалить лист?")) return;
-
-    if (supabase) {
-      await supabase.from("sheet_orders").delete().eq("sheet_id", id);
-      await supabase.from("sheet_bumps").delete().eq("sheet_id", id);
-      await supabase.from("day_sheets").delete().eq("id", id);
-    }
-
-    setSheets((s) => s.filter((x) => x.id !== id));
-    setSheetOrders((o) => o.filter((x) => x.sheet_id !== id));
-    setSheetBumps((b) => b.filter((x) => x.sheet_id !== id));
-
-    const newClosed = { ...closedSnaps };
-    delete newClosed[id];
-    setClosedSnaps(newClosed);
-    lsSet(LS.closedSnaps, newClosed);
-
-    showToast("Лист удалён");
-  };
-
-  const deleteClosedSheets = async () => {
-    const closed = sheets.filter((s) => s.status === "closed");
-    if (!closed.length) {
-      showToast("Закрытых листов нет", "err");
-      return;
-    }
-
-    if (!window.confirm(`Удалить ${closed.length} закрытых листов?`)) return;
-
-    const ids = closed.map((s) => s.id);
-
-    if (supabase) {
-      for (const id of ids) {
-        await supabase.from("sheet_orders").delete().eq("sheet_id", id);
-        await supabase.from("sheet_bumps").delete().eq("sheet_id", id);
-        await supabase.from("day_sheets").delete().eq("id", id);
-      }
-    }
-
-    setSheets((prev) => prev.filter((s) => s.status !== "closed"));
-    setSheetOrders((prev) => prev.filter((o) => !ids.includes(o.sheet_id)));
-    setSheetBumps((prev) => prev.filter((b) => !ids.includes(b.sheet_id)));
-
-    const newClosed = { ...closedSnaps };
-    ids.forEach((id) => delete newClosed[id]);
-    setClosedSnaps(newClosed);
-    lsSet(LS.closedSnaps, newClosed);
-
-    showToast("Закрытые листы удалены");
-  };
+  const chartData = workDays
+    .slice()
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .slice(-7)
+    .map((d) => ({
+      l: toRuDate(d.date).slice(0, 5),
+      v: Math.max(0, getWorkDayStats(d).net),
+    }));
 
   const logout = async () => {
     if (supabase) await supabase.auth.signOut();
@@ -2024,48 +1687,20 @@ export default function App() {
 
   const navItems = [
     { id: "dashboard", label: "Панель", icon: "dashboard" },
-    { id: "sheets", label: "Листы", icon: "sheets" },
+    { id: "workdays", label: "Рабочие дни", icon: "workdays" },
     { id: "calc", label: "Калькулятор", icon: "calc" },
     { id: "catalog", label: "Каталог", icon: "catalog" },
     { id: "rate", label: "Курс", icon: "rate" },
     ...(isAdmin ? [{ id: "admin", label: "Админка", icon: "admin" }] : []),
   ];
 
-  const chartData = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const label = `${String(d.getDate()).padStart(2, "0")}.${String(
-      d.getMonth() + 1
-    ).padStart(2, "0")}`;
-
-    const v = sheetOrders
-      .filter((o) => {
-        const od = new Date(o.created_at);
-        return (
-          od.getDate() === d.getDate() &&
-          od.getMonth() === d.getMonth() &&
-          od.getFullYear() === d.getFullYear() &&
-          o.status === "sold"
-        );
-      })
-      .reduce((sum, o) => {
-        const p = products.find((x) => Number(x.id) === Number(o.product_id));
-        if (!p) return sum;
-        return (
-          sum +
-          Math.round(
-            calcProfit({
-              salePrice: o.sale_price,
-              buyUsd: p.purchase_usd,
-              playerokRate,
-              saleCommission: p.sale_commission,
-            })
-          )
-        );
-      }, 0);
-
-    return { l: label, v: Math.max(0, v) };
-  });
+  const sortedTradeProducts = products
+    .filter((p) => p.status === "active")
+    .sort((a, b) => {
+      const aQty = Number(dayEntry[a.id]?.qty || 0);
+      const bQty = Number(dayEntry[b.id]?.qty || 0);
+      return bQty - aQty;
+    });
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)" }}>
@@ -2074,7 +1709,7 @@ export default function App() {
       <aside
         style={{
           width: 215,
-          background: "rgba(9,9,9,.95)",
+          background: "rgba(13,9,19,.95)",
           borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
@@ -2091,20 +1726,14 @@ export default function App() {
             ◼
           </div>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: "var(--text)" }}>
-              Playerok
-            </div>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: "var(--text)" }}>Playerok</div>
             <div style={{ fontSize: 10, color: "var(--text3)" }}>Tracker</div>
           </div>
         </div>
 
         <nav style={{ flex: 1, padding: "4px 8px" }}>
           {navItems.map((item) => (
-            <div
-              key={item.id}
-              className={`nav-item${page === item.id ? " active" : ""}`}
-              onClick={() => setPage(item.id)}
-            >
+            <div key={item.id} className={`nav-item${page === item.id ? " active" : ""}`} onClick={() => setPage(item.id)}>
               <Icon name={item.icon} size={14} color={page === item.id ? "#fff" : "currentColor"} />
               {item.label}
             </div>
@@ -2112,24 +1741,14 @@ export default function App() {
         </nav>
 
         <div style={{ padding: 8, borderTop: "1px solid var(--border)" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              padding: "8px 9px",
-              borderRadius: 12,
-              background: "#101010",
-              border: "1px solid var(--border)",
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 9px", borderRadius: 12, background: "#140f1d", border: "1px solid var(--border)" }}>
             <div
               style={{
                 width: 28,
                 height: 28,
                 borderRadius: "50%",
-                background: "#fff",
-                color: "#000",
+                background: "linear-gradient(135deg,#a855f7,#7e22ce)",
+                color: "#fff",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -2141,16 +1760,7 @@ export default function App() {
               {isAdmin ? "A" : auth.workerData?.name?.[0] || "W"}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "var(--text)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {isAdmin ? "Admin" : auth.workerData?.name}
               </div>
               <div style={{ fontSize: 10, color: "var(--text3)" }}>
@@ -2173,7 +1783,7 @@ export default function App() {
             alignItems: "center",
             justifyContent: "space-between",
             padding: "0 22px",
-            background: "rgba(10,10,10,.88)",
+            background: "rgba(13,9,19,.88)",
             position: "sticky",
             top: 0,
             zIndex: 50,
@@ -2193,152 +1803,86 @@ export default function App() {
                 gap: 6,
                 padding: "6px 10px",
                 borderRadius: 10,
-                background: "#101010",
+                background: "#140f1d",
                 border: "1px solid var(--border)",
                 fontSize: 12,
                 color: "var(--text2)",
                 cursor: "pointer",
               }}
             >
-              <div
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "#fff",
-                  animation: "fadeIn 1.2s infinite alternate",
-                }}
-              />
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#a855f7", animation: "fadeIn 1.2s infinite alternate" }} />
               {fmtF(googleRate)} ₽/$
             </div>
-
-            {isAdmin && (
-              <button className="btn-p" onClick={() => openM("addOrder")}>
-                <Icon name="plus" size={13} color="#000" /> Продажа
-              </button>
-            )}
           </div>
         </div>
 
         <div style={{ flex: 1, padding: "18px 22px", overflowY: "auto" }}>
           {page === "dashboard" && (
             <div className="pa">
-              <div
-                className="grid-4"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4,1fr)",
-                  gap: 11,
-                  marginBottom: 16,
-                }}
-              >
-                <MetricCard label="Чистый профит" value={`${fmt(myProfit)} ₽`} sub="мои листы" delay={0} />
-                <MetricCard label="Профит воркеров" value={`${fmt(workerProfit)} ₽`} sub="их доля" delay={0.05} />
-                <MetricCard label="Общий профит" value={`${fmt(myProfit + adminFromWorkers)} ₽`} sub="все источники" delay={0.1} />
-                <MetricCard label="Итог сегодня" value={`${fmt(netToday)} ₽`} sub={`${totalQtyToday} продаж · −${fmt(totalBumpsToday)} ₽`} delay={0.15} />
+              <div className="grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
+                <MetricCard
+                  label="Профит сегодня"
+                  value={`${(currentOpenStats?.net || netToday) >= 0 ? "+" : ""}${fmt(currentOpenStats?.net || netToday)} ₽`}
+                  sub={currentOpenDay ? `${toRuDate(currentOpenDay.date)} · открыт` : "день не открыт"}
+                  delay={0}
+                />
+                <MetricCard
+                  label="Общий профит"
+                  value={`${totalProfit >= 0 ? "+" : ""}${fmt(totalProfit)} ₽`}
+                  sub={`${workDays.filter((d) => d.status === "closed").length} закрытых дней`}
+                  delay={0.05}
+                />
+                <MetricCard
+                  label="Продажи сегодня"
+                  value={String(currentOpenStats?.qty || totalQtyToday)}
+                  sub={`${currentOpenStats?.revenue ? fmt(currentOpenStats.revenue) + " ₽ оборот" : "нет продаж"}`}
+                  delay={0.1}
+                />
               </div>
 
-              <div
-                className="mobile-stack"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "240px 1fr",
-                  gap: 11,
-                  marginBottom: 16,
-                }}
-              >
+              <div className="mobile-stack" style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 11, marginBottom: 16 }}>
                 <div className="card" style={{ padding: "14px 16px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text2)", marginBottom: 10 }}>
-                    Продажи 7 дней
+                    Профит по дням
                   </div>
-                  <MiniBar data={chartData} />
+                  <MiniBar data={chartData.length ? chartData : [{ l: "—", v: 0 }]} />
                 </div>
 
-                <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-                  <div
-                    style={{
-                      padding: "12px 15px",
-                      borderBottom: "1px solid var(--border)",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: "var(--text2)",
-                    }}
-                  >
-                    Категории сегодня
+                <div className="card" style={{ padding: "14px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 13, fontWeight: 800 }}>Рабочий день</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button className="btn-p" onClick={openWorkDay}>
+                        Открыть рабочий день
+                      </button>
+                      <button className="btn-g" onClick={closeCurrentWorkDay}>
+                        Закрыть рабочий день
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap" }}>
-                    {categories.map((cat) => {
-                      const cp = products.filter((p) => Number(p.category_id) === Number(cat.id));
-                      const cq = cp.reduce((s, p) => s + Number(dayEntry[p.id]?.qty || 0), 0);
-                      const cf = cp.reduce((s, p) => {
-                        const e = dayEntry[p.id] || { qty: 0 };
-                        return (
-                          s +
-                          Math.round(
-                            calcProfit({
-                              salePrice: p.sale_price_rub,
-                              buyUsd: p.purchase_usd,
-                              playerokRate,
-                              saleCommission: p.sale_commission,
-                            })
-                          ) *
-                            Number(e.qty || 0)
-                        );
-                      }, 0);
 
-                      return (
-                        <div
-                          key={cat.id}
-                          style={{
-                            flex: "1 1 180px",
-                            padding: "12px 14px",
-                            borderRight: "1px solid var(--border)",
-                            borderBottom: "1px solid var(--border)",
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontSize: 10,
-                              color: "var(--text3)",
-                              textTransform: "uppercase",
-                              letterSpacing: ".08em",
-                              fontWeight: 800,
-                              marginBottom: 4,
-                            }}
-                          >
-                            {cat.name}
-                          </div>
-                          <div style={{ fontSize: 19, fontWeight: 800, color: "var(--text)" }}>{cq}</div>
-                          <div style={{ fontSize: 11, color: cf >= 0 ? "var(--success)" : "var(--danger)", marginTop: 2 }}>
-                            {cf >= 0 ? "+" : ""}
-                            {fmt(cf)} ₽
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <div className="note-box">
+                    {currentOpenDay ? (
+                      <>
+                        Открыт день <b>{toRuDate(currentOpenDay.date)}</b> · продаж <b>{currentOpenStats?.qty || 0}</b> · профит{" "}
+                        <b>{(currentOpenStats?.net || 0) >= 0 ? "+" : ""}{fmt(currentOpenStats?.net || 0)} ₽</b>
+                      </>
+                    ) : (
+                      <>Сейчас нет открытого рабочего дня</>
+                    )}
                   </div>
                 </div>
               </div>
 
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-                <div
-                  style={{
-                    padding: "12px 16px",
-                    borderBottom: "1px solid var(--border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
                     Торговая таблица · {new Date().toLocaleDateString("ru-RU")}
                   </span>
 
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <span style={{ fontSize: 11, color: "var(--text3)" }}>
-                      Поднятия считаются по тарифам 10% / 20%
+                      Сортировка по количеству продаж
                     </span>
                     <button
                       className="btn-g"
@@ -2348,7 +1892,6 @@ export default function App() {
                         const upd = { ...dailyCounts };
                         delete upd[dk];
                         setDailyCounts(upd);
-                        lsSet(LS.dailyCounts, upd);
                         showToast("Счётчики сброшены");
                       }}
                     >
@@ -2372,127 +1915,63 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {products
-                        .filter((p) => p.status === "active")
-                        .map((p) => {
-                          const e = dayEntry[p.id] || { qty: 0, bumps: 0 };
-                          const pp = Math.round(
-                            calcProfit({
-                              salePrice: p.sale_price_rub,
-                              buyUsd: p.purchase_usd,
-                              playerokRate,
-                              saleCommission: p.sale_commission,
-                            })
-                          );
-                          const tariff = getTariffByPrice(p.sale_price_rub, p.sale_commission);
-                          const bumpStep = tariff.bump;
-                          const total = pp * Number(e.qty || 0) - Number(e.bumps || 0);
-                          const category = categories.find(
-                            (c) => Number(c.id) === Number(p.category_id)
-                          );
+                      {sortedTradeProducts.map((p) => {
+                        const e = dayEntry[p.id] || { qty: 0, bumps: 0 };
+                        const pp = Math.round(
+                          calcProfit({
+                            salePrice: p.sale_price_rub,
+                            buyUsd: p.purchase_usd,
+                            playerokRate,
+                            saleCommission: p.sale_commission,
+                          })
+                        );
+                        const tariff = getTariffByPrice(p.sale_price_rub, p.sale_commission);
+                        const bumpStep = tariff.bump;
+                        const total = pp * Number(e.qty || 0) - Number(e.bumps || 0);
+                        const category = categories.find((c) => Number(c.id) === Number(p.category_id));
 
-                          return (
-                            <tr key={p.id} className="tr">
-                              <td style={{ fontWeight: 700, color: "var(--text)", fontSize: 13 }}>
-                                {p.name}
-                              </td>
-                              <td>
-                                <span className="cat-tag" style={{ marginBottom: 0 }}>
-                                  {category?.name || "—"}
+                        return (
+                          <tr key={p.id} className="tr">
+                            <td style={{ fontWeight: 700, color: "var(--text)", fontSize: 13 }}>{p.name}</td>
+                            <td>
+                              <span className="cat-tag" style={{ marginBottom: 0 }}>
+                                {category?.name || "—"}
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: 700, color: "var(--text)" }}>{fmt(p.sale_price_rub)} ₽</td>
+                            <td style={{ color: "var(--text3)" }}>${fmtF(p.purchase_usd)}</td>
+                            <td style={{ fontWeight: 800, color: pp >= 0 ? "var(--success)" : "var(--danger)" }}>
+                              {pp >= 0 ? "+" : ""}{fmt(pp)} ₽
+                            </td>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <button className="cnt" onClick={() => updateDay(p.id, "qty", -1)}>−</button>
+                                <span style={{ fontWeight: 800, color: "var(--text)", fontSize: 15, minWidth: 22, textAlign: "center" }}>
+                                  {e.qty || 0}
                                 </span>
-                              </td>
-                              <td style={{ fontWeight: 700, color: "var(--text)" }}>
-                                {fmt(p.sale_price_rub)} ₽
-                              </td>
-                              <td style={{ color: "var(--text3)" }}>${fmtF(p.purchase_usd)}</td>
-                              <td
-                                style={{
-                                  fontWeight: 800,
-                                  color: pp >= 0 ? "var(--success)" : "var(--danger)",
-                                }}
-                              >
-                                {pp >= 0 ? "+" : ""}
-                                {fmt(pp)} ₽
-                              </td>
-                              <td>
+                                <button className="cnt" onClick={() => updateDay(p.id, "qty", 1)}>+</button>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "qty", -1)}>
-                                    −
-                                  </button>
-                                  <span
-                                    style={{
-                                      fontWeight: 800,
-                                      color: "var(--text)",
-                                      fontSize: 15,
-                                      minWidth: 22,
-                                      textAlign: "center",
-                                    }}
-                                  >
-                                    {e.qty || 0}
+                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", -bumpStep)}>−</button>
+                                  <span style={{ fontWeight: 700, color: Number(e.bumps || 0) > 0 ? "var(--warning)" : "var(--text3)", fontSize: 12, minWidth: 48, textAlign: "center" }}>
+                                    {Number(e.bumps || 0) > 0 ? `−${fmt(e.bumps)} ₽` : "0"}
                                   </span>
-                                  <button className="cnt" onClick={() => updateDay(p.id, "qty", 1)}>
-                                    +
-                                  </button>
+                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", bumpStep)}>+</button>
                                 </div>
-                              </td>
-                              <td>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    <button
-                                      className="cnt"
-                                      onClick={() => updateDay(p.id, "bumps", -bumpStep)}
-                                    >
-                                      −
-                                    </button>
-                                    <span
-                                      style={{
-                                        fontWeight: 700,
-                                        color:
-                                          Number(e.bumps || 0) > 0
-                                            ? "var(--warning)"
-                                            : "var(--text3)",
-                                        fontSize: 12,
-                                        minWidth: 48,
-                                        textAlign: "center",
-                                      }}
-                                    >
-                                      {Number(e.bumps || 0) > 0
-                                        ? `−${fmt(e.bumps)} ₽`
-                                        : "0"}
-                                    </span>
-                                    <button
-                                      className="cnt"
-                                      onClick={() => updateDay(p.id, "bumps", bumpStep)}
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                  <div style={{ fontSize: 10, color: "var(--text3)" }}>
-                                    шаг: {fmt(bumpStep)} ₽
-                                  </div>
-                                </div>
-                              </td>
-                              <td
-                                style={{
-                                  fontWeight: 800,
-                                  fontSize: 13,
-                                  color:
-                                    Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0
-                                      ? total >= 0
-                                        ? "var(--success)"
-                                        : "var(--danger)"
-                                      : "var(--text3)",
-                                }}
-                              >
-                                {Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0
-                                  ? `${total >= 0 ? "+" : ""}${fmt(total)} ₽`
-                                  : "—"}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                                <div style={{ fontSize: 10, color: "var(--text3)" }}>шаг: {fmt(bumpStep)} ₽</div>
+                              </div>
+                            </td>
+                            <td style={{ fontWeight: 800, fontSize: 13, color: Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0 ? total >= 0 ? "var(--success)" : "var(--danger)" : "var(--text3)" }}>
+                              {Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0 ? `${total >= 0 ? "+" : ""}${fmt(total)} ₽` : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
 
-                      {!products.filter((p) => p.status === "active").length && (
+                      {!sortedTradeProducts.length && (
                         <tr>
                           <td colSpan={8} style={{ textAlign: "center", padding: "30px", color: "var(--text3)" }}>
                             Товаров нет — добавь в Каталоге
@@ -2500,32 +1979,18 @@ export default function App() {
                         </tr>
                       )}
 
-                      <tr style={{ background: "rgba(255,255,255,.02)" }}>
+                      <tr style={{ background: "rgba(168,85,247,.05)" }}>
                         <td colSpan={5} style={{ fontWeight: 800, color: "var(--text)", fontSize: 12, borderTop: "1px solid var(--border2)" }}>
                           ИТОГО
                         </td>
                         <td style={{ fontWeight: 800, color: "var(--text)", borderTop: "1px solid var(--border2)" }}>
                           {totalQtyToday}
                         </td>
-                        <td
-                          style={{
-                            color: totalBumpsToday > 0 ? "var(--warning)" : "var(--text3)",
-                            fontWeight: 700,
-                            borderTop: "1px solid var(--border2)",
-                          }}
-                        >
+                        <td style={{ color: totalBumpsToday > 0 ? "var(--warning)" : "var(--text3)", fontWeight: 700, borderTop: "1px solid var(--border2)" }}>
                           {totalBumpsToday > 0 ? `−${fmt(totalBumpsToday)} ₽` : "—"}
                         </td>
-                        <td
-                          style={{
-                            fontWeight: 800,
-                            fontSize: 14,
-                            color: netToday >= 0 ? "var(--success)" : "var(--danger)",
-                            borderTop: "1px solid var(--border2)",
-                          }}
-                        >
-                          {netToday >= 0 ? "+" : ""}
-                          {fmt(netToday)} ₽
+                        <td style={{ fontWeight: 800, fontSize: 14, color: netToday >= 0 ? "var(--success)" : "var(--danger)", borderTop: "1px solid var(--border2)" }}>
+                          {netToday >= 0 ? "+" : ""}{fmt(netToday)} ₽
                         </td>
                       </tr>
                     </tbody>
@@ -2535,164 +2000,18 @@ export default function App() {
             </div>
           )}
 
-          {page === "sheets" && (
-            <div className="pa">
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 16,
-                  gap: 10,
-                  flexWrap: "wrap",
-                }}
-              >
-                <span style={{ fontSize: 12, color: "var(--text3)" }}>
-                  {sheets.filter((s) => s.status === "open").length} открытых ·{" "}
-                  {sheets.filter((s) => s.status === "closed").length} закрытых
-                </span>
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {isAdmin && (
-                    <button className="btn-g" onClick={deleteClosedSheets}>
-                      <Icon name="trash" size={12} /> Удалить закрытые
-                    </button>
-                  )}
-                  {isAdmin && (
-                    <button className="btn-p" onClick={() => openM("addSheet")}>
-                      <Icon name="plus" size={13} color="#000" /> Новый лист
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {!sheets.length && (
-                <div style={{ textAlign: "center", padding: 50, color: "var(--text3)" }}>
-                  Листов пока нет
-                </div>
-              )}
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))",
-                  gap: 13,
-                }}
-              >
-                {sheets.map((sh, i) => {
-                  const { net, bumps } = getSheetProfit(sh.id);
-                  const cnt = sheetOrders.filter(
-                    (o) => Number(o.sheet_id) === Number(sh.id) && o.status === "sold"
-                  ).length;
-                  const share = workerShares[sh.id] ?? 50;
-                  const wk = workers.find((w) => Number(w.id) === Number(sh.worker_id));
-
-                  return (
-                    <div
-                      key={sh.id}
-                      className="card soft-rise"
-                      style={{
-                        padding: 16,
-                        animation: `fadeUp .28s ease ${i * 0.04}s both`,
-                        position: "relative",
-                      }}
-                    >
-                      <div style={{ position: "absolute", top: 13, right: 13 }}>
-                        <Badge status={sh.status} />
-                      </div>
-
-                      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text)", marginBottom: 2 }}>
-                        {sh.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 12 }}>
-                        {wk?.name || "Admin"}
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr 1fr 1fr",
-                          gap: 7,
-                          marginBottom: 11,
-                        }}
-                      >
-                        {[
-                          [cnt, "Продаж", "var(--text)"],
-                          [`${net >= 0 ? "+" : ""}${fmt(net)} ₽`, "Профит", net >= 0 ? "var(--success)" : "var(--danger)"],
-                          [bumps ? `−${fmt(bumps)} ₽` : "0", "Поднятия", "var(--warning)"],
-                        ].map(([v, l, c], idx) => (
-                          <div key={idx} className="mini-stat">
-                            <div style={{ fontSize: idx === 0 ? 17 : 12, fontWeight: 800, color: c }}>
-                              {v}
-                            </div>
-                            <div style={{ fontSize: 9.5, color: "var(--text3)", marginTop: 1 }}>
-                              {l}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {isAdmin && sh.worker_id && (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 7,
-                            padding: "6px 9px",
-                            background: "#101010",
-                            borderRadius: 10,
-                            marginBottom: 9,
-                            border: "1px solid var(--border)",
-                          }}
-                        >
-                          <span style={{ fontSize: 11, color: "var(--text3)", flex: 1 }}>
-                            Доля воркера
-                          </span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={share}
-                            onChange={(e) => {
-                              const next = { ...workerShares, [sh.id]: Number(e.target.value) };
-                              setWorkerShares(next);
-                              lsSet(LS.workerShares, next);
-                            }}
-                            style={{
-                              width: 48,
-                              padding: "4px 6px",
-                              background: "#0b0b0b",
-                              border: "1px solid var(--border)",
-                              borderRadius: 7,
-                              color: "var(--text)",
-                              fontSize: 12,
-                              textAlign: "center",
-                              fontFamily: "inherit",
-                            }}
-                          />
-                          <span style={{ fontSize: 11, color: "var(--text3)" }}>%</span>
-                        </div>
-                      )}
-
-                      {isAdmin && sh.status === "open" && (
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            className="btn-g"
-                            style={{ flex: 1, fontSize: 11, justifyContent: "center" }}
-                            onClick={() => closeSheet(sh.id)}
-                          >
-                            ✓ Закрыть лист
-                          </button>
-                          <button className="btn-i d" onClick={() => deleteSheet(sh.id)}>
-                            <Icon name="x" size={12} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+          {page === "workdays" && (
+            <WorkDaysPage
+              workDays={workDays}
+              currentOpenDayId={currentOpenDayId}
+              openWorkDay={openWorkDay}
+              closeCurrentWorkDay={closeCurrentWorkDay}
+              selectedWorkDayId={selectedWorkDayId}
+              setSelectedWorkDayId={setSelectedWorkDayId}
+              getWorkDayStats={getWorkDayStats}
+              products={products}
+              categories={categories}
+            />
           )}
 
           {page === "calc" && <CalcPage products={products} playerokRate={playerokRate} />}
@@ -2730,70 +2049,35 @@ export default function App() {
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
                     <button className="btn-p" onClick={() => openM("addWorker")}>
-                      <Icon name="plus" size={12} color="#000" /> Добавить воркера
+                      <Icon name="plus" size={12} color="#fff" /> Добавить воркера
                     </button>
                   </div>
 
                   <div style={{ display: "grid", gap: 10 }}>
                     {workers.map((wk) => {
-                      const wkSheets = sheets.filter((s) => Number(s.worker_id) === Number(wk.id));
-                      const wProfit = wkSheets.reduce((sum, sh) => {
-                        const share = workerShares[sh.id] ?? wk.share ?? 50;
-                        return sum + Math.round(getSheetProfit(sh.id).net * (share / 100));
+                      const workerProfit = workDays.reduce((sum, day) => {
+                        const stats = getWorkDayStats(day);
+                        const share = workerShares[day.id] ?? wk.share ?? 50;
+                        return sum + Math.round(stats.net * (share / 100));
                       }, 0);
 
                       return (
-                        <div key={wk.id} className="card" style={{ padding: 12, background: "#101010" }}>
+                        <div key={wk.id} className="card" style={{ padding: 12, background: "#140f1d" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                            <div
-                              style={{
-                                width: 30,
-                                height: 30,
-                                borderRadius: "50%",
-                                background: "#fff",
-                                color: "#000",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontWeight: 800,
-                                fontSize: 12,
-                              }}
-                            >
+                            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#a855f7,#7e22ce)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>
                               {wk.name?.[0] || "W"}
                             </div>
 
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>
-                                {wk.name}
-                              </div>
-                              <div style={{ fontSize: 10, color: "var(--text3)" }}>
-                                {wkSheets.length} листов · {wk.share}%
-                              </div>
-                              <div
-                                style={{
-                                  fontFamily: "monospace",
-                                  fontSize: 10,
-                                  color: "var(--text2)",
-                                  background: "rgba(255,255,255,.05)",
-                                  padding: "1px 5px",
-                                  borderRadius: 4,
-                                  display: "inline-block",
-                                  marginTop: 2,
-                                }}
-                              >
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{wk.name}</div>
+                              <div style={{ fontSize: 10, color: "var(--text3)" }}>{wk.share}%</div>
+                              <div style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text2)", background: "rgba(168,85,247,.08)", padding: "1px 5px", borderRadius: 4, display: "inline-block", marginTop: 2 }}>
                                 {wk.key}
                               </div>
                             </div>
 
-                            <div
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 800,
-                                color: "var(--success)",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              +{fmt(wProfit)} ₽
+                            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--success)", whiteSpace: "nowrap" }}>
+                              +{fmt(workerProfit)} ₽
                             </div>
 
                             <button
@@ -2823,10 +2107,9 @@ export default function App() {
                       <button
                         className="btn-g"
                         onClick={() => {
-                          const blob = new Blob(
-                            [JSON.stringify({ sheets, sheetOrders, workers, products, categories }, null, 2)],
-                            { type: "application/json" }
-                          );
+                          const blob = new Blob([JSON.stringify({ workDays, workers, products, categories }, null, 2)], {
+                            type: "application/json",
+                          });
                           const a = document.createElement("a");
                           a.href = URL.createObjectURL(blob);
                           a.download = "playerok-backup.json";
@@ -2847,91 +2130,21 @@ export default function App() {
                     <div className="block-title">Статистика</div>
                     <div style={{ display: "grid", gap: 10 }}>
                       <div className="mini-stat">
-                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-                          Товаров
-                        </div>
+                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>Товаров</div>
                         <div style={{ fontSize: 22, fontWeight: 800 }}>{products.length}</div>
                       </div>
                       <div className="mini-stat">
-                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-                          Категорий
-                        </div>
+                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>Категорий</div>
                         <div style={{ fontSize: 22, fontWeight: 800 }}>{categories.length}</div>
                       </div>
                       <div className="mini-stat">
-                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-                          Листов
-                        </div>
-                        <div style={{ fontSize: 22, fontWeight: 800 }}>{sheets.length}</div>
+                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>Рабочих дней</div>
+                        <div style={{ fontSize: 22, fontWeight: 800 }}>{workDays.length}</div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-
-              {workerSheets.length > 0 && (
-                <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 14 }}>
-                  <div
-                    style={{
-                      padding: "12px 16px",
-                      borderBottom: "1px solid var(--border)",
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color: "var(--text)",
-                    }}
-                  >
-                    Листы воркеров
-                  </div>
-
-                  <div style={{ overflowX: "auto" }}>
-                    <table>
-                      <thead>
-                        <tr>
-                          {["Лист", "Воркер", "Продаж", "Профит", "Доля", "Воркер", "Admin", "Статус"].map((h) => (
-                            <th key={h}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {workerSheets.map((sh) => {
-                          const wk = workers.find((w) => Number(w.id) === Number(sh.worker_id));
-                          const { net } = getSheetProfit(sh.id);
-                          const share = workerShares[sh.id] ?? wk?.share ?? 50;
-                          const workerAmount = Math.round(net * (share / 100));
-                          const adminAmount = net - workerAmount;
-                          const cnt = sheetOrders.filter(
-                            (o) => Number(o.sheet_id) === Number(sh.id) && o.status === "sold"
-                          ).length;
-
-                          return (
-                            <tr key={sh.id} className="tr">
-                              <td style={{ fontWeight: 700 }}>{sh.name}</td>
-                              <td>{wk?.name || "—"}</td>
-                              <td>{cnt}</td>
-                              <td>
-                                {net >= 0 ? "+" : ""}
-                                {fmt(net)} ₽
-                              </td>
-                              <td>{share}%</td>
-                              <td>
-                                {workerAmount >= 0 ? "+" : ""}
-                                {fmt(workerAmount)} ₽
-                              </td>
-                              <td>
-                                {adminAmount >= 0 ? "+" : ""}
-                                {fmt(adminAmount)} ₽
-                              </td>
-                              <td>
-                                <Badge status={sh.status} />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -2958,21 +2171,14 @@ export default function App() {
         categories={categories}
         onAdd={async (p) => {
           if (supabase) {
-            const { data } = await supabase
-              .from("products")
-              .insert([p])
-              .select("*, categories(name)")
-              .single();
+            const { data } = await supabase.from("products").insert([p]).select("*, categories(name)").single();
             setProducts((prev) => [...prev, { ...data, category: data.categories?.name || "" }]);
           } else {
-            setProducts((prev) => [
-              ...prev,
-              {
-                ...p,
-                id: Date.now(),
-                category: categories.find((c) => Number(c.id) === Number(p.category_id))?.name || "",
-              },
-            ]);
+            setProducts((prev) => [...prev, {
+              ...p,
+              id: Date.now(),
+              category: categories.find((c) => Number(c.id) === Number(p.category_id))?.name || "",
+            }]);
           }
           showToast("Товар добавлен");
           closeM("addProduct");
@@ -2996,9 +2202,7 @@ export default function App() {
                   ? {
                       ...x,
                       ...upd,
-                      category:
-                        categories.find((c) => Number(c.id) === Number(upd.category_id))?.name ||
-                        x.category,
+                      category: categories.find((c) => Number(c.id) === Number(upd.category_id))?.name || x.category,
                     }
                   : x
               )
@@ -3009,76 +2213,6 @@ export default function App() {
           }}
         />
       )}
-
-      <AddSheetModal
-        open={!!modals.addSheet}
-        onClose={() => closeM("addSheet")}
-        workers={workers}
-        isAdmin={isAdmin}
-        onAdd={async (sheet) => {
-          if (supabase) {
-            const { data } = await supabase.from("day_sheets").insert([sheet]).select().single();
-            setSheets((prev) => [data, ...prev]);
-          } else {
-            setSheets((prev) => [
-              { ...sheet, id: Date.now(), created_at: new Date().toISOString() },
-              ...prev,
-            ]);
-          }
-          showToast("Лист создан");
-          closeM("addSheet");
-        }}
-      />
-
-      <AddOrderModal
-        open={!!modals.addOrder}
-        onClose={() => closeM("addOrder")}
-        products={products}
-        sheets={sheets.filter((s) => s.status === "open")}
-        onAdd={async (order) => {
-          if (supabase) {
-            const { data } = await supabase
-              .from("sheet_orders")
-              .insert([
-                {
-                  sheet_id: order.sheet_id,
-                  product_id: order.product_id,
-                  sale_price: order.sale_price,
-                  status: order.status,
-                },
-              ])
-              .select()
-              .single();
-
-            if (Number(order.bumps || 0) > 0) {
-              const bumpRow = { sheet_id: order.sheet_id, amount: Number(order.bumps || 0) };
-              await supabase.from("sheet_bumps").insert([bumpRow]);
-              setSheetBumps((prev) => [...prev, { ...bumpRow, id: Date.now() }]);
-            }
-
-            setSheetOrders((prev) => [...prev, data]);
-          } else {
-            setSheetOrders((prev) => [
-              ...prev,
-              { ...order, id: Date.now(), created_at: new Date().toISOString() },
-            ]);
-            if (Number(order.bumps || 0) > 0) {
-              setSheetBumps((prev) => [
-                ...prev,
-                {
-                  id: Date.now() + 1,
-                  sheet_id: order.sheet_id,
-                  amount: Number(order.bumps || 0),
-                  created_at: new Date().toISOString(),
-                },
-              ]);
-            }
-          }
-
-          showToast("Продажа добавлена");
-          closeM("addOrder");
-        }}
-      />
 
       <AddWorkerModal
         open={!!modals.addWorker}
