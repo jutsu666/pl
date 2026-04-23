@@ -2438,7 +2438,6 @@ useEffect(() => {
                   </table>
                 </div>
               </div></>
-            </div>
           )}
 
           {page === "workdays" && (
