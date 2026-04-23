@@ -53,6 +53,18 @@ const toRuTime = (iso) => {
   }
 };
 
+function getOrderUiStatus(order) {
+  const doneStatuses = [
+    "CONFIRMED",
+    "CONFIRMED_AUTOMATICALLY",
+    "DONE",
+    "COMPLETED",
+    "DELIVERED",
+  ];
+
+  return doneStatuses.includes(order?.status) ? "issued" : "waiting";
+}
+
 const SALE_TARIFFS = {
   10: [
     { min: 90, max: 499, listing: 19, bump: 9 },
@@ -183,13 +195,17 @@ const FS = ({ label, options, ...p }) => (
 
 function Badge({ status }) {
   const map = {
-    sold: ["Продано", "#efe9ff", "rgba(168,85,247,.16)"],
-    open: ["Открыт", "#efe9ff", "rgba(168,85,247,.16)"],
+    sold: ["Продано", "#86efac", "rgba(34,197,94,.12)"],
+    open: ["Ожидание", "#fbbf24", "rgba(245,158,11,.12)"],
     closed: ["Закрыт", "#b8b0cc", "rgba(255,255,255,.04)"],
     active: ["Активен", "#efe9ff", "rgba(168,85,247,.16)"],
     inactive: ["Неактивен", "#8f88a2", "rgba(255,255,255,.03)"],
+    issued: ["Выдан", "#86efac", "rgba(34,197,94,.12)"],
+    waiting: ["Ожидание", "#fbbf24", "rgba(245,158,11,.12)"],
   };
+
   const [label, color, bg] = map[status] || [status, "#d4d4d8", "rgba(255,255,255,.05)"];
+
   return (
     <span
       className="badge"
@@ -1123,6 +1139,120 @@ function AddWorkerModal({ open, onClose, onAdd }) {
   );
 }
 
+function OrdersModal({ open, onClose, orders, loading }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Все покупки" width={860}>
+      <div
+        style={{
+          display: "grid",
+          gap: 10,
+          maxHeight: "72vh",
+          overflowY: "auto",
+          paddingRight: 4,
+        }}
+      >
+        {loading && (
+          <div style={{ color: "var(--text3)", fontSize: 13 }}>
+            Загружаем заказы...
+          </div>
+        )}
+
+        {!loading && !orders.length && (
+          <div style={{ color: "var(--text3)", fontSize: 13 }}>
+            Заказов пока нет
+          </div>
+        )}
+
+        {!loading &&
+          orders.map((order) => {
+            const price = order.item?.price || order.item?.raw_price || 0;
+            const status = getOrderUiStatus(order);
+
+            return (
+              <div
+                key={order.id}
+                className="card"
+                style={{
+                  padding: 14,
+                  background: "rgba(168,85,247,.04)",
+                  border: "1px solid rgba(168,85,247,.12)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    alignItems: "flex-start",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: "var(--text)",
+                        marginBottom: 6,
+                      }}
+                    >
+                      {order.item?.name || "Без названия"}
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 12,
+                        flexWrap: "wrap",
+                        fontSize: 11,
+                        color: "var(--text3)",
+                      }}
+                    >
+                      <span>ID: {order.id}</span>
+                      <span>Сумма: {rub(price)} ₽</span>
+                      <span>Время: {toRuTime(order.created_at || order.createdAt)}</span>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Badge status={status} />
+
+                    <button
+                      className="btn-g"
+                      style={{ padding: "7px 10px", fontSize: 11 }}
+                      onClick={() => {
+                        const chatUrl =
+                          order?.chat_url ||
+                          order?.chatUrl ||
+                          order?.buyer_chat_url ||
+                          order?.buyerChatUrl;
+
+                        if (chatUrl) {
+                          window.open(chatUrl, "_blank");
+                        } else {
+                          alert("Ссылка на чат пока не пришла с backend");
+                        }
+                      }}
+                    >
+                      Перейти в чат
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </Modal>
+  );
+}
+
 const GLOBAL_STYLES = `
 :root{
   --bg:#07050a;
@@ -1458,7 +1588,7 @@ export default function App() {
   const [workerShares, setWorkerShares] = useState(() => ls(LS.workerShares, {}));
   const [dailyCounts, setDailyCounts] = useState(() => ls(LS.dailyCounts, {}));
   const [workDays, setWorkDays] = useState(() => ls(LS.workDays, []));
-
+  const [ordersModalOpen, setOrdersModalOpen] = useState(false);
   const [selectedWorkDayId, setSelectedWorkDayId] = useState(null);
 
   const [playerokStats, setPlayerokStats] = useState({
@@ -1923,63 +2053,54 @@ export default function App() {
         <div style={{ flex: 1, padding: "18px 22px", overflowY: "auto" }}>
           {page === "dashboard" && (
             
-            <div className="pa">
+            <><div className="pa">
               <div className="grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
                 <MetricCard
                   label="Профит сегодня"
                   value={`${(currentOpenStats?.net || netToday) >= 0 ? "+" : ""}${fmt(currentOpenStats?.net || netToday)} ₽`}
                   sub={currentOpenDay ? `${toRuDate(currentOpenDay.date)} · открыт` : "день не открыт"}
-                  delay={0}
-                />
+                  delay={0} />
                 <MetricCard
                   label="Общий профит"
                   value={`${totalProfit >= 0 ? "+" : ""}${fmt(totalProfit)} ₽`}
                   sub={`${workDays.filter((d) => d.status === "closed").length} закрытых дней`}
-                  delay={0.05}
-                />
+                  delay={0.05} />
                 <MetricCard
                   label="Продажи сегодня"
                   value={String(currentOpenStats?.qty || totalQtyToday)}
                   sub={`${currentOpenStats?.revenue ? fmt(currentOpenStats.revenue) + " ₽ оборот" : "нет продаж"}`}
-                  delay={0.1}
-                />
+                  delay={0.1} />
               </div>
-              
- <div
-  style={{
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 10,
-    marginBottom: 16,
-  }}
- >
-  <MetricCard
-    label="Отзывы"
-    value={String(playerokStats.reviews || 0)}
-    sub={playerokStats.sync_ok ? `Рейтинг ${playerokStats.rating || 0}` : "нет синхронизации"}
-  />
-  <MetricCard
-    label="Баланс"
-    value={`${rub(playerokStats.balance_total)} ₽`}
-    sub={`К выводу ${rub(playerokStats.balance_available)} ₽`}
-  />
-  <MetricCard
-    label="В ожидании"
-    value={String(playerokStats.pending_orders || 0)}
-    sub={`Pending income ${rub(playerokStats.pending_income)} ₽`}
-  />
-  <MetricCard
-    label="Выполнено за день"
-    value={String(playerokStats.completed_today || 0)}
-    sub={
-      statsLoading
-        ? "обновляем..."
-        : playerokStats.sync_ok
-        ? "синхронизировано"
-        : "нет синхронизации"
-    }
-  />
- </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gap: 10,
+                  marginBottom: 16,
+                }}
+              >
+                <MetricCard
+                  label="Отзывы"
+                  value={String(playerokStats.reviews || 0)}
+                  sub={playerokStats.sync_ok ? `Рейтинг ${playerokStats.rating || 0}` : "нет синхронизации"} />
+                <MetricCard
+                  label="Баланс"
+                  value={`${rub(playerokStats.balance_total)} ₽`}
+                  sub={`К выводу ${rub(playerokStats.balance_available)} ₽`} />
+                <MetricCard
+                  label="В ожидании"
+                  value={String(playerokStats.pending_orders || 0)}
+                  sub={`Pending income ${rub(playerokStats.pending_income)} ₽`} />
+                <MetricCard
+                  label="Выполнено за день"
+                  value={String(playerokStats.completed_today || 0)}
+                  sub={statsLoading
+                    ? "обновляем..."
+                    : playerokStats.sync_ok
+                      ? "синхронизировано"
+                      : "нет синхронизации"} />
+              </div>
               <div
   className="mobile-stack"
   style={{
@@ -1997,26 +2118,67 @@ export default function App() {
     <MiniBar data={chartData.length ? chartData : [{ l: "—", v: 0 }]} />
   </div>
 
-  <div className="card" style={{ padding: "14px 16px", minHeight: 150 }}>
+  <div
+    className="card"
+    style={{
+      padding: "14px 16px",
+      minHeight: 150,
+      height: 320,
+      display: "flex",
+      flexDirection: "column",
+    }}
+  >
     <div
       style={{
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
         marginBottom: 10,
+        gap: 10,
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-        Live покупки
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
+          Live покупки
+        </div>
+
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 800,
+            color: "#86efac",
+            background: "rgba(34,197,94,.12)",
+            border: "1px solid rgba(34,197,94,.18)",
+            borderRadius: 999,
+            padding: "2px 6px",
+            letterSpacing: ".04em",
+          }}
+        >
+          LIVE
+        </span>
       </div>
-      <div style={{ fontSize: 10, color: "var(--text3)" }}>
-        {ordersLoading ? "..." : playerokOrders.length}
-      </div>
+
+      <button
+        className="btn-g"
+        style={{ padding: "6px 10px", fontSize: 11 }}
+        onClick={() => setOrdersModalOpen(true)}
+      >
+        Открыть всё
+      </button>
     </div>
 
-    <div style={{ display: "grid", gap: 8 }}>
-      {playerokOrders.slice(0, 4).map((order) => {
+    <div
+      style={{
+        display: "grid",
+        gap: 8,
+        overflowY: "auto",
+        paddingRight: 4,
+        flex: 1,
+      }}
+    >
+      {playerokOrders.map((order) => {
         const price = order.item?.price || order.item?.raw_price || 0;
+        const uiStatus = getOrderUiStatus(order);
 
         return (
           <div
@@ -2050,17 +2212,16 @@ export default function App() {
                 gap: 8,
               }}
             >
-              <span style={{ fontSize: 11, color: "var(--text2)" }}>
-                {rub(price)} ₽
-              </span>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text2)" }}>
+                  {rub(price)} ₽
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>
+                  {toRuTime(order.created_at || order.createdAt)}
+                </div>
+              </div>
 
-              <Badge
-                status={
-                  order.status === "CONFIRMED" || order.status === "CONFIRMED_AUTOMATICALLY"
-                    ? "sold"
-                    : "open"
-                }
-              />
+              <Badge status={uiStatus} />
             </div>
           </div>
         );
@@ -2071,10 +2232,10 @@ export default function App() {
           Пока нет данных
         </div>
       )}
-    </div> 
+    </div>
   </div>
- </div>
-              <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+</div>
+            </div><div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
                     Торговая таблица · {new Date().toLocaleDateString("ru-RU")}
@@ -2093,7 +2254,7 @@ export default function App() {
                         delete upd[dk];
                         setDailyCounts(upd);
                         showToast("Счётчики сброшены");
-                      }}
+                      } }
                     >
                       Сбросить
                     </button>
@@ -2196,7 +2357,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </div></>
             </div>
           )}
 
@@ -2414,22 +2575,23 @@ export default function App() {
         />
       )}
 
-      <AddWorkerModal
-        open={!!modals.addWorker}
-        onClose={() => closeM("addWorker")}
-        onAdd={async (worker) => {
-          if (supabase) {
-            const { data } = await supabase.from("worker_keys").insert([worker]).select().single();
-            setWorkers((prev) => [...prev, data]);
-          } else {
-            setWorkers((prev) => [...prev, { ...worker, id: Date.now() }]);
-          }
-          showToast("Воркер добавлен");
-          closeM("addWorker");
-        }}
-      />
-
-      <Toast toast={toast} />
+      <><AddWorkerModal
+    open={!!modals.addWorker}
+    onClose={() => closeM("addWorker")}
+    onAdd={async (worker) => {
+      if (supabase) {
+        const { data } = await supabase.from("worker_keys").insert([worker]).select().single();
+        setWorkers((prev) => [...prev, data]);
+      } else {
+        setWorkers((prev) => [...prev, { ...worker, id: Date.now() }]);
+      }
+      showToast("Воркер добавлен");
+      closeM("addWorker");
+    } } /><OrdersModal
+      open={ordersModalOpen}
+      onClose={() => setOrdersModalOpen(false)}
+      orders={playerokOrders}
+      loading={ordersLoading} /><Toast toast={toast} /></>
     </div>
   );
 }
