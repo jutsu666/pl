@@ -20,6 +20,14 @@ const fmtF = (n, d = 2) => Number(n).toFixed(d);
 const todayStr = () => new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
+const toRuTime = (iso) => {
+  try {
+    return new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+};
+
 function calcProfit({ salePrice, buyUsd, playerokRate, commType }) {
   const commRate = commType === "premium" ? 0.04 : 0.05;
   return salePrice - salePrice * commRate - buyUsd * (playerokRate || 88);
