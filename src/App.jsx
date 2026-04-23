@@ -4,6 +4,14 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const supabase = SUPABASE_URL ? createClient(SUPABASE_URL, SUPABASE_ANON) : null;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+function rub(v) {
+  return Number(v || 0).toLocaleString("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  });
+}
 
 const LS = {
   googleRate: "playerok_googleRate",
@@ -1420,6 +1428,21 @@ export default function App() {
   const [workDays, setWorkDays] = useState(() => ls(LS.workDays, []));
 
   const [selectedWorkDayId, setSelectedWorkDayId] = useState(null);
+  const [playerokStats, setPlayerokStats] = useState({
+  reviews: 0,
+  rating: 0,
+  balance_total: 0,
+  balance_available: 0,
+  balance_frozen: 0,
+  balance_withdrawable: 0,
+  pending_income: 0,
+  pending_orders: 0,
+  completed_today: 0,
+  last_sync_at: null,
+  sync_ok: false,
+  });
+
+  const [statsLoading, setStatsLoading] = useState(false);
   const [modals, setModals] = useState({});
   const [editTarget, setEditTarget] = useState(null);
 
@@ -1437,7 +1460,21 @@ export default function App() {
 
   const openM = (name) => setModals((m) => ({ ...m, [name]: true }));
   const closeM = (name) => setModals((m) => ({ ...m, [name]: false }));
+  const loadPlayerokStats = useCallback(async () => {
+  if (!BACKEND_URL) return;
 
+  try {
+    setStatsLoading(true);
+    const res = await fetch(`${BACKEND_URL}/stats`);
+    if (!res.ok) throw new Error("Не удалось загрузить stats");
+    const data = await res.json();
+    setPlayerokStats(data);
+  } catch (e) {
+    console.error("Ошибка загрузки Playerok stats:", e);
+  } finally {
+    setStatsLoading(false);
+  }
+ }, []);
   useEffect(() => {
     lsSet(LS.workDays, workDays);
   }, [workDays]);
@@ -1463,6 +1500,17 @@ export default function App() {
   useEffect(() => {
     if (auth) loadData();
   }, [auth]);
+  useEffect(() => {
+  if (!BACKEND_URL) return;
+
+  loadPlayerokStats();
+
+  const timer = setInterval(() => {
+    loadPlayerokStats();
+  }, 30000);
+
+  return () => clearInterval(timer);
+ }, [loadPlayerokStats]);
 
   const loadDemo = () => {
     setCategories([
@@ -1818,6 +1866,7 @@ export default function App() {
 
         <div style={{ flex: 1, padding: "18px 22px", overflowY: "auto" }}>
           {page === "dashboard" && (
+            
             <div className="pa">
               <div className="grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
                 <MetricCard
@@ -1839,7 +1888,47 @@ export default function App() {
                   delay={0.1}
                 />
               </div>
-
+              
+ <div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gap: 10,
+    marginBottom: 16,
+  }}
+ >
+  <MetricCard
+    label="Отзывы"
+    value={String(playerokStats.reviews || 0)}
+    sub={playerokStats.sync_ok ? `Рейтинг ${playerokStats.rating || 0}` : "нет синхронизации"}
+  />
+  <MetricCard
+    label="Баланс"
+    value={`${rub(playerokStats.balance_total)} ₽`}
+    sub={`Доступно ${rub(playerokStats.balance_available)} ₽`}
+  />
+  <MetricCard
+    label="Холд"
+    value={`${rub(playerokStats.balance_frozen)} ₽`}
+    sub={`К выводу ${rub(playerokStats.balance_withdrawable)} ₽`}
+  />
+  <MetricCard
+    label="В ожидании"
+    value={String(playerokStats.pending_orders || 0)}
+    sub={`Pending income ${rub(playerokStats.pending_income)} ₽`}
+  />
+  <MetricCard
+    label="Выполнено за день"
+    value={String(playerokStats.completed_today || 0)}
+    sub={
+      statsLoading
+        ? "обновляем..."
+        : playerokStats.sync_ok
+        ? "синхронизировано"
+        : "нет синхронизации"
+    }
+  />
+ </div>
               <div className="mobile-stack" style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 11, marginBottom: 16 }}>
                 <div className="card" style={{ padding: "14px 16px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text2)", marginBottom: 10 }}>
