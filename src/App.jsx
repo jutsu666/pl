@@ -2001,79 +2001,116 @@ export default function App() {
                   </div>
                 </div>
               </div>
- <div className="card" style={{ marginBottom: 16 }}>
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      marginBottom: 12,
-    }}
-  >
-    <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-      Live покупки
+ <div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "260px 1fr",
+    gap: 11,
+    marginBottom: 16,
+  }}
+>
+  <div className="card" style={{ padding: "14px 16px" }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 10,
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
+        Live покупки
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text3)" }}>
+        {ordersLoading ? "..." : playerokOrders.length}
+      </div>
     </div>
-    <div style={{ fontSize: 11, color: "var(--text3)" }}>
-      {ordersLoading ? "обновляем..." : `${playerokOrders.length} записей`}
+
+    <div style={{ display: "grid", gap: 8 }}>
+      {playerokOrders.slice(0, 5).map((order) => {
+        const price = order.item?.price || order.item?.raw_price || 0;
+
+        return (
+          <div
+            key={order.id}
+            style={{
+              padding: "9px 10px",
+              borderRadius: 12,
+              background: "rgba(168,85,247,.05)",
+              border: "1px solid rgba(168,85,247,.12)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: "var(--text)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                marginBottom: 4,
+              }}
+            >
+              {order.item?.name || "Без названия"}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: 11, color: "var(--text2)", fontWeight: 700 }}>
+                {rub(price)} ₽
+              </div>
+
+              <Badge
+                status={
+                  order.status === "CONFIRMED" || order.status === "CONFIRMED_AUTOMATICALLY"
+                    ? "sold"
+                    : "open"
+                }
+              />
+            </div>
+          </div>
+        );
+      })}
+
+      {!playerokOrders.length && (
+        <div style={{ color: "var(--text3)", fontSize: 12 }}>
+          Пока нет данных
+        </div>
+      )}
     </div>
   </div>
 
-  <div style={{ display: "grid", gap: 8 }}>
-    {playerokOrders.slice(0, 6).map((order) => (
-      <div
-        key={order.id}
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.8fr 1fr .8fr .8fr .8fr",
-          gap: 10,
-          alignItems: "center",
-          padding: "10px 12px",
-          borderRadius: 12,
-          background: "rgba(168,85,247,.05)",
-          border: "1px solid rgba(168,85,247,.12)",
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              color: "var(--text)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {order.item?.name || "Без названия"}
-          </div>
-          <div style={{ fontSize: 10.5, color: "var(--text3)", marginTop: 2 }}>
-            ID: {order.id}
-          </div>
-        </div>
+  <div className="card" style={{ padding: "14px 16px" }}>
+    <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", marginBottom: 10 }}>
+      Рабочий день
+    </div>
 
-        <div style={{ fontSize: 12, color: "var(--text2)" }}>
-          {order.buyer?.username || "Покупатель"}
-        </div>
+    <div className="note-box">
+      {currentOpenDay ? (
+        <>
+          Открыт день <b>{toRuDate(currentOpenDay.date)}</b> · продаж{" "}
+          <b>{currentOpenStats?.qty || 0}</b> · профит{" "}
+          <b>{(currentOpenStats?.net || 0) >= 0 ? "+" : ""}{fmt(currentOpenStats?.net || 0)} ₽</b>
+        </>
+      ) : (
+        <>Сейчас нет открытого рабочего дня</>
+      )}
+    </div>
 
-        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>
-          {rub(order.price)} ₽
-        </div>
-
-        <div style={{ fontSize: 11, color: "var(--text3)" }}>
-          {toRuTime(order.created_at)}
-        </div>
-
-        <div>
-          <Badge status={order.status === "CONFIRMED" || order.status === "CONFIRMED_AUTOMATICALLY" ? "sold" : "open"} />
-        </div>
-      </div>
-    ))}
-
-    {!playerokOrders.length && (
-      <div style={{ color: "var(--text3)", fontSize: 12, padding: "8px 0" }}>
-        Пока нет данных по покупкам
-      </div>
-    )}
+    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+      <button className="btn-p" onClick={openWorkDay}>
+        Открыть рабочий день
+      </button>
+      <button className="btn-g" onClick={closeCurrentWorkDay}>
+        Закрыть рабочий день
+      </button>
+    </div>
   </div>
  </div>
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
