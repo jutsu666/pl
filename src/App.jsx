@@ -1968,48 +1968,24 @@ export default function App() {
     }
   />
  </div>
-              <div className="mobile-stack" style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 11, marginBottom: 16 }}>
-                <div className="card" style={{ padding: "14px 16px" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text2)", marginBottom: 10 }}>
-                    Профит по дням
-                  </div>
-                  <MiniBar data={chartData.length ? chartData : [{ l: "—", v: 0 }]} />
-                </div>
-
-                <div className="card" style={{ padding: "14px 16px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
-                    <div style={{ fontSize: 13, fontWeight: 800 }}>Рабочий день</div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button className="btn-p" onClick={openWorkDay}>
-                        Открыть рабочий день
-                      </button>
-                      <button className="btn-g" onClick={closeCurrentWorkDay}>
-                        Закрыть рабочий день
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="note-box">
-                    {currentOpenDay ? (
-                      <>
-                        Открыт день <b>{toRuDate(currentOpenDay.date)}</b> · продаж <b>{currentOpenStats?.qty || 0}</b> · профит{" "}
-                        <b>{(currentOpenStats?.net || 0) >= 0 ? "+" : ""}{fmt(currentOpenStats?.net || 0)} ₽</b>
-                      </>
-                    ) : (
-                      <>Сейчас нет открытого рабочего дня</>
-                    )}
-                  </div>
-                </div>
-              </div>
- <div
+              <div
+  className="mobile-stack"
   style={{
     display: "grid",
-    gridTemplateColumns: "260px 1fr",
-    gap: 11,
+    gridTemplateColumns: "220px 320px 1fr",
+    gap: 12,
     marginBottom: 16,
+    alignItems: "start",
   }}
 >
-  <div className="card" style={{ padding: "14px 16px" }}>
+  <div className="card" style={{ padding: "14px 16px", minHeight: 150 }}>
+    <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", marginBottom: 10 }}>
+      Профит по дням
+    </div>
+    <MiniBar data={chartData.length ? chartData : [{ l: "—", v: 0 }]} />
+  </div>
+
+  <div className="card" style={{ padding: "14px 16px", minHeight: 150 }}>
     <div
       style={{
         display: "flex",
@@ -2027,15 +2003,15 @@ export default function App() {
     </div>
 
     <div style={{ display: "grid", gap: 8 }}>
-      {playerokOrders.slice(0, 5).map((order) => {
+      {playerokOrders.slice(0, 4).map((order) => {
         const price = order.item?.price || order.item?.raw_price || 0;
 
         return (
           <div
             key={order.id}
             style={{
-              padding: "9px 10px",
-              borderRadius: 12,
+              padding: "8px 10px",
+              borderRadius: 10,
               background: "rgba(168,85,247,.05)",
               border: "1px solid rgba(168,85,247,.12)",
             }}
@@ -2045,9 +2021,9 @@ export default function App() {
                 fontSize: 11.5,
                 fontWeight: 700,
                 color: "var(--text)",
+                whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
                 marginBottom: 4,
               }}
             >
@@ -2062,9 +2038,9 @@ export default function App() {
                 gap: 8,
               }}
             >
-              <div style={{ fontSize: 11, color: "var(--text2)", fontWeight: 700 }}>
+              <span style={{ fontSize: 11, color: "var(--text2)" }}>
                 {rub(price)} ₽
-              </div>
+              </span>
 
               <Badge
                 status={
@@ -2086,9 +2062,29 @@ export default function App() {
     </div>
   </div>
 
-  <div className="card" style={{ padding: "14px 16px" }}>
-    <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", marginBottom: 10 }}>
-      Рабочий день
+  <div className="card" style={{ padding: "14px 16px", minHeight: 150 }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 10,
+        gap: 10,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
+        Рабочий день
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button className="btn-p" onClick={openWorkDay}>
+          Открыть рабочий день
+        </button>
+        <button className="btn-g" onClick={closeCurrentWorkDay}>
+          Закрыть рабочий день
+        </button>
+      </div>
     </div>
 
     <div className="note-box">
@@ -2096,20 +2092,14 @@ export default function App() {
         <>
           Открыт день <b>{toRuDate(currentOpenDay.date)}</b> · продаж{" "}
           <b>{currentOpenStats?.qty || 0}</b> · профит{" "}
-          <b>{(currentOpenStats?.net || 0) >= 0 ? "+" : ""}{fmt(currentOpenStats?.net || 0)} ₽</b>
+          <b>
+            {(currentOpenStats?.net || 0) >= 0 ? "+" : ""}
+            {fmt(currentOpenStats?.net || 0)} ₽
+          </b>
         </>
       ) : (
         <>Сейчас нет открытого рабочего дня</>
       )}
-    </div>
-
-    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-      <button className="btn-p" onClick={openWorkDay}>
-        Открыть рабочий день
-      </button>
-      <button className="btn-g" onClick={closeCurrentWorkDay}>
-        Закрыть рабочий день
-      </button>
     </div>
   </div>
  </div>
