@@ -4,107 +4,384 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const supabase = SUPABASE_URL ? createClient(SUPABASE_URL, SUPABASE_ANON) : null;
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
-
-function rub(v) {
-  return Number(v || 0).toLocaleString("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 1,
-  });
-}
 
 const LS = {
   googleRate: "playerok_googleRate",
   playerokRate: "playerok_playerokRate",
-  workerShares: "playerok_workerShares",
+  closedSnaps: "playerok_closedSheetSnapshots",
+  workerShares: "playerok_workerSheetShares",
   dailyCounts: "playerok_dailyCounts",
-  workDays: "playerok_workDays",
 };
 
-const ls = (k, fb = null) => {
-  try {
-    return JSON.parse(localStorage.getItem(k)) ?? fb;
-  } catch {
-    return fb;
-  }
-};
-
+const ls = (k, fb = null) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
 const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-
-const fmt = (n) => Math.round(Number(n || 0)).toLocaleString("ru-RU");
-const fmtF = (n, d = 2) => Number(n || 0).toFixed(d);
+const fmt = n => Math.round(n).toLocaleString("ru-RU");
+const fmtF = (n, d = 2) => Number(n).toFixed(d);
+const todayStr = () => new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
 const todayKey = () => new Date().toISOString().slice(0, 10);
-const toRuDate = (iso) => {
-  try {
-    return new Date(iso).toLocaleDateString("ru-RU");
-  } catch {
-    return iso;
-  }
-};
 
-const toRuTime = (iso) => {
-  try {
-    return new Date(iso).toLocaleTimeString("ru-RU", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-};
-
-function getOrderUiStatus(order) {
-  const doneStatuses = [
-    "CONFIRMED",
-    "CONFIRMED_AUTOMATICALLY",
-    "DONE",
-    "COMPLETED",
-    "DELIVERED",
-  ];
-
-  return doneStatuses.includes(order?.status) ? "issued" : "waiting";
+function calcProfit({ salePrice, buyUsd, playerokRate, commType }) {
+  const commRate = commType === "premium" ? 0.04 : 0.05;
+  return salePrice - salePrice * commRate - buyUsd * (playerokRate || 88);
 }
 
-const SALE_TARIFFS = {
-  10: [
-    { min: 90, max: 499, listing: 19, bump: 9 },
-    { min: 500, max: 999, listing: 25, bump: 13 },
-    { min: 1000, max: 2499, listing: 37, bump: 19 },
-    { min: 2500, max: 4999, listing: 49, bump: 25 },
-    { min: 5000, max: 9999, listing: 75, bump: 37 },
-    { min: 10000, max: Infinity, listing: 99, bump: 49 },
-  ],
-  20: [
-    { min: 90, max: 499, listing: 25, bump: 13 },
-    { min: 500, max: 999, listing: 37, bump: 19 },
-    { min: 1000, max: 2499, listing: 49, bump: 25 },
-    { min: 2500, max: 4999, listing: 75, bump: 37 },
-    { min: 5000, max: 9999, listing: 99, bump: 49 },
-    { min: 10000, max: Infinity, listing: 149, bump: 75 },
-  ],
+const P = {
+  dashboard: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
+  sheets: "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z",
+  calc: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z",
+  rate: "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z",
+  catalog: "M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z",
+  admin: "M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z",
+  plus: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
+  x: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+  logout: "M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z",
+  refresh: "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z",
+  edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+  folder: "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z",
 };
+const Icon = ({ name, size = 16, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ flexShrink: 0 }}>
+    <path d={P[name] || P.dashboard} />
+  </svg>
+);
 
-function getTariffByPrice(price, saleCommission) {
-  const comm = Number(saleCommission) === 20 ? 20 : 10;
-  const p = Number(price || 0);
-  const row = SALE_TARIFFS[comm].find((r) => p >= r.min && p <= r.max);
-  return row || { listing: 0, bump: 0 };
+// ── SHARED UI ──────────────────────────────────────────────────────────────
+const Lbl = ({ children }) => (
+  <label style={{ display: "block", fontSize: 10.5, color: "var(--text3)", marginBottom: 5, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".065em" }}>{children}</label>
+);
+const Field = ({ label, children }) => <div style={{ marginBottom: 13 }}><Lbl>{label}</Lbl>{children}</div>;
+const FI = ({ label, ...p }) => <Field label={label}><input className="fi" {...p} /></Field>;
+const FS = ({ label, options, ...p }) => (
+  <Field label={label}>
+    <select className="fi" style={{ cursor: "pointer" }} {...p}>
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  </Field>
+);
+
+function Badge({ status }) {
+  const M = {
+    sold: ["Продано", "#34d399", "rgba(52,211,153,.1)"],
+    pending: ["Ожидание", "#fbbf24", "rgba(251,191,36,.1)"],
+    cancelled: ["Отменено", "#f87171", "rgba(248,113,113,.1)"],
+    open: ["Открыт", "#38bdf8", "rgba(56,189,248,.1)"],
+    closed: ["Закрыт", "#50507a", "rgba(80,80,122,.15)"],
+    active: ["Активен", "#34d399", "rgba(52,211,153,.1)"],
+    inactive: ["Неактивен", "#50507a", "rgba(80,80,122,.15)"],
+  };
+  const [l, c, bg] = M[status] || [status, "#8888aa", "rgba(136,136,170,.1)"];
+  return <span className="badge" style={{ color: c, background: bg }}>{l}</span>;
 }
 
-function calcProfit({ salePrice, buyUsd, playerokRate, saleCommission }) {
-  const sale = Number(salePrice || 0);
-  const buy = Number(buyUsd || 0);
-  const rate = Number(playerokRate || 88);
-  const commPercent = Number(saleCommission) === 20 ? 20 : 10;
-  const commAmount = Math.round((sale * commPercent) / 100);
-  return sale - commAmount - buy * rate;
+function Modal({ open, onClose, title, children, width = 440 }) {
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+  if (!open) return null;
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 600, backdropFilter: "blur(10px)", animation: "fadeIn .18s ease" }}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border2)", borderRadius: 18, padding: "24px 26px", width, maxWidth: "94vw", maxHeight: "92vh", overflowY: "auto", animation: "scaleIn .2s ease", boxShadow: "0 30px 90px rgba(0,0,0,.7)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{title}</span>
+          <button className="btn-i" onClick={onClose}><Icon name="x" size={13} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const MFoot = ({ onClose, onSubmit, label = "Сохранить" }) => (
+  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+    <button className="btn-g" onClick={onClose}>Отмена</button>
+    <button className="btn-p" onClick={onSubmit}>{label}</button>
+  </div>
+);
+
+function useToast() {
+  const [t, setT] = useState(null);
+  const r = useRef();
+  const show = useCallback((msg, type = "ok") => {
+    setT({ msg, type });
+    clearTimeout(r.current);
+    r.current = setTimeout(() => setT(null), 2700);
+  }, []);
+  return { toast: t, show };
+}
+
+function Toast({ toast }) {
+  if (!toast) return null;
+  return (
+    <div style={{ position: "fixed", bottom: 22, right: 22, background: "var(--card)", border: `1px solid ${toast.type === "err" ? "rgba(248,113,113,.4)" : "rgba(124,92,252,.4)"}`, borderRadius: 11, padding: "10px 16px", fontSize: 13, color: "var(--text)", zIndex: 9999, display: "flex", alignItems: "center", gap: 8, boxShadow: "0 8px 36px rgba(0,0,0,.5)", animation: "slideR .22s ease" }}>
+      {toast.type === "err" ? "✕" : "✓"} {toast.msg}
+    </div>
+  );
+}
+
+function MetricCard({ label, value, sub, accent = "#7c5cfc", delay = 0 }) {
+  return (
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "16px 18px", position: "relative", overflow: "hidden", animation: `fadeUp .3s ease ${delay}s both`, transition: "border-color .2s, transform .2s" }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.borderColor = accent + "55"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.borderColor = "var(--border)"; }}>
+      <div style={{ position: "absolute", top: -20, right: -20, width: 70, height: 70, borderRadius: "50%", background: accent, opacity: .07 }} />
+      <div style={{ fontSize: 10.5, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".07em", fontWeight: 600, marginBottom: 7 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: "var(--text)", letterSpacing: "-.02em", lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function MiniBar({ data }) {
+  const max = Math.max(...data.map(d => d.v), 1);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 80 }}>
+      {data.map((d, i) => (
+        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, height: "100%", justifyContent: "flex-end" }}>
+          <div style={{ width: "100%", height: `${Math.max((d.v / max) * 62, 2)}px`, background: i === data.length - 1 ? "var(--accent)" : "rgba(124,92,252,.28)", borderRadius: "3px 3px 0 0", minHeight: 2 }} title={d.l + ": " + fmt(d.v) + " ₽"} />
+          <div style={{ fontSize: 9.5, color: "var(--text3)" }}>{d.l}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+function DashMiniTrend({ type = "line", color = "#8b5cf6" }) {
+  if (type === "bars") {
+    return (
+      <svg width="74" height="34" viewBox="0 0 74 34" fill="none" style={{ opacity: 0.9 }}>
+        {[8, 14, 10, 19, 25, 16, 28].map((h, i) => (
+          <rect
+            key={i}
+            x={4 + i * 10}
+            y={30 - h}
+            width="6"
+            height={h}
+            rx="2"
+            fill={color}
+            opacity={0.45 + i * 0.07}
+          />
+        ))}
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="74" height="34" viewBox="0 0 74 34" fill="none" style={{ opacity: 0.95 }}>
+      <path
+        d="M3 29C9 24 13 19 19 21C24 23 28 17 33 10C37 5 41 6 45 13C49 20 54 18 60 10C64 5 68 7 71 11"
+        stroke={color}
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+const DASH_CARD_THEMES = {
+  violet: {
+    bg: "linear-gradient(180deg, rgba(72,34,132,.45), rgba(16,22,43,.96))",
+    border: "rgba(139,92,246,.28)",
+    iconBg: "rgba(139,92,246,.22)",
+    iconColor: "#c4b5fd",
+    spark: "#a855f7",
+  },
+  blue: {
+    bg: "linear-gradient(180deg, rgba(18,73,124,.4), rgba(13,22,43,.96))",
+    border: "rgba(59,130,246,.24)",
+    iconBg: "rgba(59,130,246,.18)",
+    iconColor: "#93c5fd",
+    spark: "#3b82f6",
+  },
+  cyan: {
+    bg: "linear-gradient(180deg, rgba(18,102,109,.4), rgba(11,22,39,.96))",
+    border: "rgba(45,212,191,.24)",
+    iconBg: "rgba(45,212,191,.18)",
+    iconColor: "#5eead4",
+    spark: "#22d3ee",
+  },
+  rose: {
+    bg: "linear-gradient(180deg, rgba(121,38,87,.42), rgba(24,20,39,.96))",
+    border: "rgba(244,114,182,.22)",
+    iconBg: "rgba(244,114,182,.17)",
+    iconColor: "#f9a8d4",
+    spark: "#a855f7",
+  },
+  amber: {
+    bg: "linear-gradient(180deg, rgba(109,69,20,.42), rgba(23,20,37,.96))",
+    border: "rgba(245,158,11,.22)",
+    iconBg: "rgba(245,158,11,.17)",
+    iconColor: "#fcd34d",
+    spark: "#f59e0b",
+  },
+  orange: {
+    bg: "linear-gradient(180deg, rgba(111,48,27,.42), rgba(23,19,34,.96))",
+    border: "rgba(249,115,22,.22)",
+    iconBg: "rgba(249,115,22,.18)",
+    iconColor: "#fdba74",
+    spark: "#fb923c",
+  },
+  green: {
+    bg: "linear-gradient(180deg, rgba(43,88,38,.38), rgba(15,27,35,.96))",
+    border: "rgba(132,204,22,.22)",
+    iconBg: "rgba(132,204,22,.16)",
+    iconColor: "#bef264",
+    spark: "#84cc16",
+  },
+};
+
+function DashboardMetricCard({ label, value, sub, icon = "dashboard", tone = "violet", trend = "line" }) {
+  const theme = DASH_CARD_THEMES[tone] || DASH_CARD_THEMES.violet;
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        borderRadius: 14,
+        minHeight: 98,
+        padding: "14px 16px",
+        border: `1px solid ${theme.border}`,
+        background: theme.bg,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,.03), 0 14px 40px rgba(0,0,0,.22)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+            <div
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 8,
+                display: "grid",
+                placeItems: "center",
+                background: theme.iconBg,
+                color: theme.iconColor,
+                border: "1px solid rgba(255,255,255,.05)",
+                flexShrink: 0,
+              }}
+            >
+              <Icon name={icon} size={13} color={theme.iconColor} />
+            </div>
+            <div
+              style={{
+                fontSize: 10.5,
+                lineHeight: 1,
+                color: "#c3cae9",
+                fontWeight: 700,
+              }}
+            >
+              {label}
+            </div>
+          </div>
+          <div style={{ fontSize: 19, fontWeight: 800, color: "#f4f7ff", letterSpacing: "-.03em" }}>
+            {value}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 11, color: "#98a3c7" }}>{sub}</div>
+        </div>
+
+        <div style={{ alignSelf: "flex-end", marginBottom: -2 }}>
+          <DashMiniTrend type={trend} color={theme.spark} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardLineChart({ data }) {
+  const width = 520;
+  const height = 250;
+  const padL = 42;
+  const padR = 18;
+  const padT = 16;
+  const padB = 34;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  const safe = data.length ? data : [{ l: "—", v: 0 }];
+  const max = Math.max(...safe.map(d => d.v), 1);
+
+  const points = safe.map((d, i) => {
+    const x = padL + (safe.length === 1 ? innerW / 2 : (innerW / (safe.length - 1)) * i);
+    const y = padT + innerH - (d.v / max) * (innerH - 10);
+    return { ...d, x, y };
+  });
+
+  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x} ${p.y}`).join(" ");
+  const area = `${line} L ${points[points.length - 1].x} ${padT + innerH} L ${points[0].x} ${padT + innerH} Z`;
+  const gridValues = [0, 0.25, 0.5, 0.75, 1];
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: 238, display: "block" }}>
+      <defs>
+        <linearGradient id="dashAreaFill" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="rgba(139,92,246,.32)" />
+          <stop offset="100%" stopColor="rgba(139,92,246,0)" />
+        </linearGradient>
+      </defs>
+
+      {gridValues.map((g, i) => {
+        const y = padT + innerH - innerH * g;
+        const label = fmt(Math.round(max * g));
+        return (
+          <g key={i}>
+            <line x1={padL} y1={y} x2={width - padR} y2={y} stroke="rgba(148,163,184,.08)" strokeWidth="1" />
+            <text x={padL - 10} y={y + 4} fontSize="10" fill="#6f7a99" textAnchor="end">
+              {label === "0" ? "0" : `${label}`}
+            </text>
+          </g>
+        );
+      })}
+
+      <path d={area} fill="url(#dashAreaFill)" />
+      <path d={line} fill="none" stroke="#9b5cff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r="3.7" fill="#a855f7" />
+          <circle cx={p.x} cy={p.y} r="7" fill="rgba(168,85,247,.12)" />
+          <text x={p.x} y={height - 12} fontSize="10" fill="#7f89a9" textAnchor="middle">
+            {p.l}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function DashboardBottomStat({ icon = "rate", title, value, sub, tone = "violet" }) {
+  const theme = DASH_CARD_THEMES[tone] || DASH_CARD_THEMES.violet;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+      <div
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 11,
+          display: "grid",
+          placeItems: "center",
+          background: theme.iconBg,
+          border: `1px solid ${theme.border}`,
+          flexShrink: 0,
+        }}
+      >
+        <Icon name={icon} size={18} color={theme.iconColor} />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: "#9aa6c9", marginBottom: 2 }}>{title}</div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: "#eef3ff" }}>{value}</div>
+        <div style={{ fontSize: 11, color: "#6f7a99" }}>{sub}</div>
+      </div>
+    </div>
+  );
 }
 
 async function fetchGoogleRateReal() {
   try {
-    const r = await fetch(
-      "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
-    );
+    const r = await fetch("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json");
     const d = await r.json();
     const v = d?.usd?.rub;
     if (v && v > 50 && v < 200) return Math.round(v * 100) / 100;
@@ -118,281 +395,7 @@ async function fetchGoogleRateReal() {
   return null;
 }
 
-const P = {
-  dashboard:
-    "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
-  workdays:
-    "M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zm-7-9h-2v3H7v2h3v3h2v-3h3v-2h-3z",
-  calc:
-    "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z",
-  rate:
-    "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z",
-  catalog: "M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z",
-  admin:
-    "M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z",
-  plus: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
-  x: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
-  logout:
-    "M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z",
-  refresh:
-    "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z",
-  edit:
-    "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
-  folder:
-    "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z",
-  trash:
-    "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm3.46-7.12 1.41-1.41L12 11.59l1.12-1.12 1.41 1.41L13.41 13l1.12 1.12-1.41 1.41L12 14.41l-1.12 1.12-1.41-1.41L10.59 13l-1.13-1.12zM15.5 4l-1-1h-5l-1 1H5v2h14V4z",
-  eye:
-    "M12 6.5c-5 0-9.27 3.11-11 7.5 1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z",
-};
-
-const Icon = ({ name, size = 16, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ flexShrink: 0 }}>
-    <path d={P[name] || P.dashboard} />
-  </svg>
-);
-
-const Lbl = ({ children }) => (
-  <label
-    style={{
-      display: "block",
-      fontSize: 10.5,
-      color: "var(--text3)",
-      marginBottom: 5,
-      fontWeight: 700,
-      textTransform: "uppercase",
-      letterSpacing: ".08em",
-    }}
-  >
-    {children}
-  </label>
-);
-
-const Field = ({ label, children }) => (
-  <div style={{ marginBottom: 13 }}>
-    <Lbl>{label}</Lbl>
-    {children}
-  </div>
-);
-
-const FI = ({ label, ...p }) => (
-  <Field label={label}>
-    <input className="fi" {...p} />
-  </Field>
-);
-
-const FS = ({ label, options, ...p }) => (
-  <Field label={label}>
-    <select className="fi" style={{ cursor: "pointer" }} {...p}>
-      {options.map((o) => (
-        <option key={String(o.value)} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  </Field>
-);
-
-function Badge({ status }) {
-  const map = {
-    sold: ["Продано", "#86efac", "rgba(34,197,94,.12)"],
-    open: ["Ожидание", "#fbbf24", "rgba(245,158,11,.12)"],
-    closed: ["Закрыт", "#b8b0cc", "rgba(255,255,255,.04)"],
-    active: ["Активен", "#efe9ff", "rgba(168,85,247,.16)"],
-    inactive: ["Неактивен", "#8f88a2", "rgba(255,255,255,.03)"],
-    issued: ["Выдан", "#86efac", "rgba(34,197,94,.12)"],
-    waiting: ["Ожидание", "#fbbf24", "rgba(245,158,11,.12)"],
-  };
-
-  const [label, color, bg] = map[status] || [status, "#d4d4d8", "rgba(255,255,255,.05)"];
-
-  return (
-    <span
-      className="badge"
-      style={{
-        color,
-        background: bg,
-        border: "1px solid rgba(168,85,247,.18)",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function Modal({ open, onClose, title, children, width = 460 }) {
-  useEffect(() => {
-    document.body.style.overflow = open ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  return (
-    <div
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,.82)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-        backdropFilter: "blur(10px)",
-        animation: "fadeIn .18s ease",
-      }}
-    >
-      <div
-        style={{
-          width,
-          maxWidth: "94vw",
-          maxHeight: "92vh",
-          overflowY: "auto",
-          background: "var(--card)",
-          border: "1px solid var(--border2)",
-          borderRadius: 18,
-          padding: "24px 24px 18px",
-          boxShadow: "0 30px 90px rgba(0,0,0,.65)",
-          animation: "scaleIn .2s ease",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{title}</div>
-          <button className="btn-i" onClick={onClose}>
-            <Icon name="x" size={12} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-const MFoot = ({ onClose, onSubmit, label = "Сохранить" }) => (
-  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
-    <button className="btn-g" onClick={onClose}>Отмена</button>
-    <button className="btn-p" onClick={onSubmit}>{label}</button>
-  </div>
-);
-
-function useToast() {
-  const [t, setT] = useState(null);
-  const ref = useRef();
-
-  const show = useCallback((msg, type = "ok") => {
-    setT({ msg, type });
-    clearTimeout(ref.current);
-    ref.current = setTimeout(() => setT(null), 2600);
-  }, []);
-
-  return { toast: t, show };
-}
-
-function Toast({ toast }) {
-  if (!toast) return null;
-  return (
-    <div
-      style={{
-        position: "fixed",
-        right: 24,
-        bottom: 24,
-        background: "rgba(18,12,24,.96)",
-        border: "1px solid rgba(168,85,247,.24)",
-        color: "var(--text)",
-        borderRadius: 12,
-        padding: "11px 15px",
-        zIndex: 5000,
-        boxShadow: "0 14px 40px rgba(0,0,0,.45)",
-        animation: "slideR .2s ease",
-        fontSize: 13,
-      }}
-    >
-      {toast.type === "err" ? "✕" : "✓"} {toast.msg}
-    </div>
-  );
-}
-
- function MetricCard({ label, value, sub, delay = 0 }) {
-  return (
-    <div
-      className="card"
-      style={{
-        padding: "14px 16px",
-        animation: `fadeUp .3s ease ${delay}s both`,
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          right: -18,
-          top: -18,
-          width: 64,
-          height: 64,
-          borderRadius: "50%",
-          background: "rgba(168,85,247,.08)",
-        }}
-      />
-      <div
-        style={{
-          fontSize: 10.5,
-          color: "var(--text3)",
-          textTransform: "uppercase",
-          letterSpacing: ".08em",
-          fontWeight: 700,
-          marginBottom: 6,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 22,
-          fontWeight: 800,
-          color: "var(--text)",
-          lineHeight: 1.1,
-          letterSpacing: "-.03em",
-        }}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div style={{ marginTop: 5, fontSize: 11, color: "var(--text3)" }}>
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MiniBar({ data }) {
-  const max = Math.max(...data.map((d) => d.v), 1);
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 82 }}>
-      {data.map((d, i) => (
-        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%" }}>
-          <div
-            title={`${d.l}: ${fmt(d.v)} ₽`}
-            style={{
-              width: "100%",
-              minHeight: 3,
-              height: `${Math.max((d.v / max) * 62, 3)}px`,
-              borderRadius: "4px 4px 0 0",
-              background: i === data.length - 1 ? "#a855f7" : "rgba(168,85,247,.28)",
-              transition: "height .18s ease",
-            }}
-          />
-          <div style={{ fontSize: 9.5, color: "var(--text3)" }}>{d.l}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
+// ── AUTH ──────────────────────────────────────────────────────────────────────
 function AuthScreen({ onLogin }) {
   const [mode, setMode] = useState("admin");
   const [email, setEmail] = useState("");
@@ -401,105 +404,62 @@ function AuthScreen({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleAdmin = async (e) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
+  const handleAdmin = async e => {
+    e.preventDefault(); setError(""); setLoading(true);
     if (supabase) {
       const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
-      if (err) {
-        setError(err.message);
-        setLoading(false);
-        return;
-      }
+      if (err) { setError(err.message); setLoading(false); return; }
       const { data: prof } = await supabase.from("profiles").select("role").eq("id", data.user.id).single();
       onLogin({ user: data.user, role: prof?.role || "admin", session: data.session });
     } else {
-      if (email === "admin@playerok.ru" && password === "admin123") {
-        onLogin({ user: { id: "demo-admin" }, role: "admin" });
-      } else {
-        setError("Демо: admin@playerok.ru / admin123");
-      }
+      if (email === "admin@playerok.ru" && password === "admin123") onLogin({ user: { id: "demo" }, role: "admin" });
+      else setError("Демо: admin@playerok.ru / admin123");
     }
-
     setLoading(false);
   };
 
-  const handleWorker = async (e) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
+  const handleWorker = async e => {
+    e.preventDefault(); setError(""); setLoading(true);
     if (supabase) {
       const { data: wk, error: err } = await supabase.from("worker_keys").select("*").eq("key", workerKey).single();
-      if (err || !wk) {
-        setError("Неверный ключ воркера");
-        setLoading(false);
-        return;
-      }
-      onLogin({ user: { id: `w-${wk.id}` }, role: "worker", workerData: wk });
+      if (err || !wk) { setError("Неверный ключ воркера"); setLoading(false); return; }
+      onLogin({ user: { id: "w-" + wk.id }, role: "worker", workerData: wk });
     } else {
-      if (workerKey === "worker-demo") {
-        onLogin({
-          user: { id: "demo-worker" },
-          role: "worker",
-          workerData: { id: 1, name: "Артём", key: "worker-demo", share: 50 },
-        });
-      } else {
-        setError("Демо ключ: worker-demo");
-      }
+      if (workerKey === "worker-demo") onLogin({ user: { id: "wd" }, role: "worker", workerData: { id: 1, name: "Артём", key: "worker-demo", share: 50 } });
+      else setError("Демо ключ: worker-demo");
     }
-
     setLoading(false);
   };
 
   return (
-    <div className="auth-wrap">
-      <style>{GLOBAL_STYLES}</style>
-      <div className="auth-glow" />
-      <div className="auth-card">
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0f", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "fixed", inset: 0, background: "radial-gradient(ellipse at 25% 25%, rgba(124,92,252,.09) 0%, transparent 55%), radial-gradient(ellipse at 80% 80%, rgba(92,139,252,.07) 0%, transparent 55%)", pointerEvents: "none" }} />
+      <div style={{ width: 390, background: "#141420", border: "1px solid rgba(255,255,255,0.11)", borderRadius: 20, padding: "34px 32px", boxShadow: "0 40px 100px rgba(0,0,0,.6)", animation: "scaleIn .3s ease", position: "relative", zIndex: 1 }}>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <div className="logo-box">◼</div>
-          <div style={{ fontSize: 19, fontWeight: 800, color: "var(--text)", letterSpacing: "-.02em" }}>
-            Playerok Tracker
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 3 }}>
-            Учёт продаж · Доходы · Аналитика
-          </div>
+          <div style={{ width: 46, height: 46, borderRadius: 14, background: "linear-gradient(135deg,#7c3aed,#4f46e5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, margin: "0 auto 12px", boxShadow: "0 8px 24px rgba(124,92,252,.4)" }}>🎮</div>
+          <div style={{ fontSize: 19, fontWeight: 800, color: "#dde0f0", letterSpacing: "-.02em" }}>Playerok Tracker</div>
+          <div style={{ fontSize: 12, color: "#505070", marginTop: 3 }}>Учёт продаж · Доходы · Аналитика</div>
         </div>
-
-        <div className="switcher">
-          {[
-            ["admin", "Admin"],
-            ["worker", "Worker"],
-          ].map(([m, l]) => (
-            <button
-              key={m}
-              className={mode === m ? "switcher-btn active" : "switcher-btn"}
-              onClick={() => {
-                setMode(m);
-                setError("");
-              }}
-            >
+        <div style={{ display: "flex", background: "#111118", borderRadius: 10, padding: 3, marginBottom: 20, gap: 3 }}>
+          {[["admin", "👑 Admin"], ["worker", "🔧 Worker"]].map(([m, l]) => (
+            <button key={m} onClick={() => { setMode(m); setError(""); }}
+              style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13, transition: "all .2s", background: mode === m ? "#7c5cfc" : "transparent", color: mode === m ? "#fff" : "#505070", fontFamily: "inherit" }}>
               {l}
             </button>
           ))}
         </div>
-
         <form onSubmit={mode === "admin" ? handleAdmin : handleWorker}>
           {mode === "admin" ? (
             <>
-              <FI label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@playerok.ru" />
-              <FI label="Пароль" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+              <FI label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@playerok.ru" />
+              <FI label="Пароль" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
             </>
           ) : (
-            <FI label="Worker Key" value={workerKey} onChange={(e) => setWorkerKey(e.target.value)} placeholder="worker-xxxxx" />
+            <FI label="Worker Key" value={workerKey} onChange={e => setWorkerKey(e.target.value)} placeholder="worker-xxxxx" />
           )}
-
-          {error && <div className="error-box">{error}</div>}
-
-          <button type="submit" disabled={loading} className="auth-submit">
+          {error && <div style={{ fontSize: 12, color: "#f87171", padding: "8px 11px", background: "rgba(248,113,113,.07)", borderRadius: 8, marginBottom: 12, border: "1px solid rgba(248,113,113,.18)" }}>{error}</div>}
+          <button type="submit" disabled={loading}
+            style={{ width: "100%", padding: "11px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? .7 : 1, boxShadow: "0 4px 18px rgba(124,92,252,.35)", fontFamily: "inherit" }}>
             {loading ? "Входим..." : "Войти"}
           </button>
         </form>
@@ -508,233 +468,145 @@ function AuthScreen({ onLogin }) {
   );
 }
 
+// ── PAGE COMPONENTS ────────────────────────────────────────────────────────────
+
 function CalcPage({ products, playerokRate }) {
   const [sp, setSp] = useState("");
   const [bu, setBu] = useState("");
   const [pr, setPr] = useState(playerokRate);
-  const [saleCommission, setSaleCommission] = useState(10);
+  const [ct, setCt] = useState("standard");
   const [ws, setWs] = useState(50);
   const [bm, setBm] = useState(0);
   const [pid, setPid] = useState("");
 
-  useEffect(() => {
-    setPr(playerokRate);
-  }, [playerokRate]);
+  useEffect(() => { setPr(playerokRate); }, [playerokRate]);
 
-  const sale = Number(sp) || 0;
-  const buy = Number(bu) || 0;
-  const rate = Number(pr) || playerokRate;
-  const commissionPercent = Number(saleCommission) === 20 ? 20 : 10;
-  const commAmt = Math.round((sale * commissionPercent) / 100);
+  const sale = +sp || 0, buy = +bu || 0, rate = +pr || playerokRate;
+  const commRate = ct === "premium" ? 0.04 : 0.05;
+  const commAmt = Math.round(sale * commRate);
   const buyRub = Math.round(buy * rate);
-  const tariff = getTariffByPrice(sale, saleCommission);
   const gross = sale - commAmt - buyRub;
   const net = gross - bm;
-  const workerAmount = ws > 0 ? Math.round((net * ws) / 100) : 0;
-  const adminAmount = net - workerAmount;
+  const wAmt = ws > 0 ? Math.round(net * ws / 100) : 0;
+  const aAmt = net - wAmt;
 
   const row = (l, v, c) => (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
       <span style={{ color: "var(--text3)", fontSize: 12 }}>{l}</span>
-      <span style={{ color: c || "var(--text)", fontWeight: 700, fontSize: 12 }}>{v}</span>
+      <span style={{ fontWeight: 600, color: c || "var(--text)", fontSize: 12 }}>{v}</span>
     </div>
   );
 
   return (
-    <div className="pa" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 860 }}>
+    <div className="pa" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 820 }}>
       <div className="card">
-        <div className="block-title">Параметры</div>
-
-        <FS
-          label="Быстрый выбор"
-          value={pid}
-          onChange={(e) => {
-            const value = e.target.value;
-            setPid(value);
-            const p = products.find((x) => Number(x.id) === Number(value));
-            if (p) {
-              setSp(p.sale_price_rub);
-              setBu(p.purchase_usd);
-              setSaleCommission(p.sale_commission || 10);
-              setBm(getTariffByPrice(p.sale_price_rub, p.sale_commission).bump);
-            }
-          }}
-          options={[
-            { value: "", label: "— выберите товар —" },
-            ...products.map((p) => ({ value: p.id, label: p.name })),
-          ]}
-        />
-
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>Параметры</div>
+        <FS label="Быстрый выбор" value={pid} onChange={e => {
+          setPid(e.target.value);
+          const p = products.find(x => x.id == e.target.value);
+          if (p) { setSp(p.sale_price_rub); setBu(p.purchase_usd); setCt(p.commission_type); }
+        }} options={[{ value: "", label: "— выберите товар —" }, ...products.map(p => ({ value: p.id, label: p.name }))]} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          <FI label="Цена продажи (₽)" type="number" value={sp} onChange={(e) => setSp(e.target.value)} placeholder="0" />
-          <FI label="Закупка ($)" type="number" value={bu} onChange={(e) => setBu(e.target.value)} placeholder="0" />
-          <FI label="Курс Playerok" type="number" value={pr} onChange={(e) => setPr(e.target.value)} />
-          <FS
-            label="Комиссия с продажи"
-            value={saleCommission}
-            onChange={(e) => setSaleCommission(Number(e.target.value))}
-            options={[
-              { value: 10, label: "10%" },
-              { value: 20, label: "20%" },
-            ]}
-          />
-          <FI label="Доля воркера (%)" type="number" value={ws} onChange={(e) => setWs(Number(e.target.value) || 0)} />
-          <FI label="Поднятия (₽)" type="number" value={bm} onChange={(e) => setBm(Number(e.target.value) || 0)} />
-        </div>
-
-        <div className="note-box" style={{ marginTop: 10 }}>
-          Выставление по тарифу: <b>{fmt(tariff.listing)} ₽</b> · Поднятие по тарифу: <b>{fmt(tariff.bump)} ₽</b>
+          <FI label="Цена продажи (₽)" type="number" value={sp} onChange={e => setSp(e.target.value)} placeholder="0" />
+          <FI label="Закупка ($)" type="number" value={bu} onChange={e => setBu(e.target.value)} placeholder="0" />
+          <FI label="Курс Playerok" type="number" value={pr} onChange={e => setPr(e.target.value)} />
+          <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "5% Standard" }, { value: "premium", label: "4% Premium" }]} />
+          <FI label="Доля воркера (%)" type="number" value={ws} onChange={e => setWs(+e.target.value || 0)} placeholder="50" />
+          <FI label="Поднятия (₽)" type="number" value={bm} onChange={e => setBm(+e.target.value || 0)} placeholder="0" />
         </div>
       </div>
-
       <div className="card">
-        <div className="block-title">Расчёт</div>
-        {row("Цена продажи", `${fmt(sale)} ₽`)}
-        {row(`Комиссия ${commissionPercent}%`, `−${fmt(commAmt)} ₽`, "var(--danger)")}
-        {row("Закупка по курсу", `−${fmt(buyRub)} ₽`, "var(--danger)")}
-        {row("Выставление по тарифу", `−${fmt(tariff.listing)} ₽`, "var(--warning)")}
-        {row("Поднятия", bm ? `−${fmt(bm)} ₽` : "0 ₽", bm ? "var(--warning)" : undefined)}
-        {row("Валовый профит", `${gross >= 0 ? "+" : ""}${fmt(gross)} ₽`, gross >= 0 ? "var(--success)" : "var(--danger)")}
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>Расчёт</div>
+        {row("Цена продажи", fmt(sale) + " ₽")}
+        {row("Комиссия " + Math.round(commRate * 100) + "%", "−" + fmt(commAmt) + " ₽", "var(--danger)")}
+        {row("Закупка по курсу", "−" + fmt(buyRub) + " ₽", "var(--danger)")}
+        {row("Поднятия", bm ? "−" + fmt(bm) + " ₽" : "0 ₽", bm ? "var(--warning)" : undefined)}
+        {row("Валовый профит", (gross >= 0 ? "+" : "") + fmt(gross) + " ₽", gross >= 0 ? "var(--success)" : "var(--danger)")}
         <div style={{ height: 1, background: "var(--border)", margin: "9px 0" }} />
-        {ws > 0 && row(`Профит воркера (${ws}%)`, `+${fmt(workerAmount)} ₽`, "var(--text2)")}
-        {row("Профит Admin", `${adminAmount >= 0 ? "+" : ""}${fmt(adminAmount)} ₽`, adminAmount >= 0 ? "var(--success)" : "var(--danger)")}
-
-        <div className="note-box" style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {ws > 0 && row("Профит воркера (" + ws + "%)", "+" + fmt(wAmt) + " ₽", "var(--text2)")}
+        {row("Профит Admin", "+" + fmt(aAmt) + " ₽", "var(--success)")}
+        <div style={{ marginTop: 14, padding: "13px 15px", background: "rgba(124,92,252,.07)", border: "1px solid rgba(124,92,252,.18)", borderRadius: "var(--r)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Итого Admin</span>
-          <span style={{ fontSize: 26, fontWeight: 800, color: adminAmount >= 0 ? "var(--success)" : "var(--danger)" }}>
-            {adminAmount >= 0 ? "+" : ""}{fmt(adminAmount)} ₽
-          </span>
+          <span style={{ fontSize: 26, fontWeight: 800, color: aAmt >= 0 ? "var(--success)" : "var(--danger)", letterSpacing: "-.02em" }}>{aAmt >= 0 ? "+" : ""}{fmt(aAmt)} ₽</span>
         </div>
       </div>
     </div>
   );
 }
 
-function CatalogPage({
-  products,
-  setProducts,
-  categories,
-  setCategories,
-  playerokRate,
-  isAdmin,
-  openM,
-  setEditTarget,
-  showToast,
-}) {
+function CatalogPage({ products, setProducts, categories, setCategories, playerokRate, isAdmin, openM, setEditTarget, showToast }) {
   const [activeCat, setActiveCat] = useState("all");
-  const filtered = activeCat === "all" ? products : products.filter((p) => Number(p.category_id) === Number(activeCat));
+  const filtered = activeCat === "all" ? products : products.filter(p => p.category_id == activeCat);
 
   return (
     <div className="pa">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[{ id: "all", name: "Все" }, ...categories].map((c) => (
-            <button key={c.id} className={activeCat == c.id ? "chip active" : "chip"} onClick={() => setActiveCat(c.id)}>
+          {[{ id: "all", name: "Все" }, ...categories].map(c => (
+            <button key={c.id} onClick={() => setActiveCat(c.id)}
+              style={{ padding: "5px 12px", borderRadius: 18, fontSize: 12, fontWeight: 500, border: "1px solid", borderColor: activeCat == c.id ? "var(--accent)" : "var(--border)", background: activeCat == c.id ? "rgba(124,92,252,.1)" : "var(--bg3)", color: activeCat == c.id ? "#a78bfa" : "var(--text2)", cursor: "pointer", transition: "all .15s", fontFamily: "inherit" }}>
               {c.name}
             </button>
           ))}
         </div>
-
         {isAdmin && (
           <div style={{ display: "flex", gap: 7 }}>
-            <button className="btn-g" onClick={() => openM("addCategory")}>
-              <Icon name="folder" size={12} /> + Категория
-            </button>
-            <button className="btn-p" onClick={() => openM("addProduct")}>
-              <Icon name="plus" size={12} color="#fff" /> + Товар
-            </button>
+            <button className="btn-g" onClick={() => openM("addCategory")}><Icon name="folder" size={12} /> + Категория</button>
+            <button className="btn-p" onClick={() => openM("addProduct")}><Icon name="plus" size={12} color="#fff" /> + Товар</button>
           </div>
         )}
       </div>
 
       {isAdmin && categories.length > 0 && (
         <div className="card" style={{ padding: "11px 14px", marginBottom: 13 }}>
-          <div className="section-caption">Управление категориями</div>
+          <div style={{ fontSize: 10.5, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600, marginBottom: 8 }}>Управление категориями</div>
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-            {categories.map((c) => (
-              <div key={c.id} className="cat-pill">
-                <Icon name="folder" size={11} color="#d8b4fe" />
+            {categories.map(c => (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", background: "var(--bg3)", borderRadius: 7, border: "1px solid var(--border)" }}>
+                <Icon name="folder" size={11} color="#a78bfa" />
                 <span style={{ fontSize: 12, color: "var(--text)", fontWeight: 500 }}>{c.name}</span>
-                <button
-                  className="btn-i d"
-                  style={{ width: 18, height: 18, borderRadius: 4, marginLeft: 2 }}
-                  onClick={async () => {
-                    if (!window.confirm(`Удалить категорию "${c.name}"?`)) return;
-                    if (supabase) await supabase.from("categories").delete().eq("id", c.id);
-                    setCategories((prev) => prev.filter((x) => x.id !== c.id));
-                    showToast("Категория удалена");
-                  }}
-                >
-                  <Icon name="x" size={10} />
-                </button>
+                <button className="btn-i d" style={{ width: 18, height: 18, borderRadius: 4, marginLeft: 2 }} onClick={async () => {
+                  if (!window.confirm(`Удалить категорию "${c.name}"?`)) return;
+                  if (supabase) await supabase.from("categories").delete().eq("id", c.id);
+                  setCategories(prev => prev.filter(x => x.id !== c.id));
+                  showToast("Категория удалена");
+                }}><Icon name="x" size={10} /></button>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(235px,1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 11 }}>
         {filtered.map((p, i) => {
-          const profit = Math.round(
-            calcProfit({
-              salePrice: p.sale_price_rub,
-              buyUsd: p.purchase_usd,
-              playerokRate,
-              saleCommission: p.sale_commission,
-            })
-          );
-
-          const tariff = getTariffByPrice(p.sale_price_rub, p.sale_commission);
-          const category = categories.find((c) => Number(c.id) === Number(p.category_id));
-
+          const profit = Math.round(calcProfit({ salePrice: p.sale_price_rub, buyUsd: p.purchase_usd, playerokRate, commType: p.commission_type }));
           return (
-            <div key={p.id} className="card soft-rise" style={{ padding: 15, animation: `fadeUp .25s ease ${i * 0.03}s both` }}>
+            <div key={p.id} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: 15, animation: `fadeUp .25s ease ${i * .03}s both`, transition: "all .2s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(124,92,252,.32)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.transform = ""; }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 7 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", lineHeight: 1.3, flex: 1, marginRight: 6 }}>
-                  {p.name}
-                </div>
-
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", lineHeight: 1.3, flex: 1, marginRight: 6 }}>{p.name}</div>
                 {isAdmin && (
                   <div style={{ display: "flex", gap: 3 }}>
-                    <button className="btn-i" style={{ width: 22, height: 22, borderRadius: 5 }} onClick={() => { setEditTarget(p); openM("editProduct"); }}>
-                      <Icon name="edit" size={11} />
-                    </button>
-                    <button
-                      className="btn-i d"
-                      style={{ width: 22, height: 22, borderRadius: 5 }}
-                      onClick={async () => {
-                        if (!window.confirm("Удалить товар?")) return;
-                        if (supabase) await supabase.from("products").delete().eq("id", p.id);
-                        setProducts((prev) => prev.filter((x) => x.id !== p.id));
-                        showToast("Товар удалён");
-                      }}
-                    >
-                      <Icon name="x" size={11} />
-                    </button>
+                    <button className="btn-i" style={{ width: 22, height: 22, borderRadius: 5 }} onClick={() => { setEditTarget(p); openM("editProduct"); }}><Icon name="edit" size={11} /></button>
+                    <button className="btn-i d" style={{ width: 22, height: 22, borderRadius: 5 }} onClick={async () => {
+                      if (!window.confirm("Удалить товар?")) return;
+                      if (supabase) await supabase.from("products").delete().eq("id", p.id);
+                      setProducts(prev => prev.filter(x => x.id !== p.id));
+                      showToast("Товар удалён");
+                    }}><Icon name="x" size={11} /></button>
                   </div>
                 )}
               </div>
-
-              <div className="cat-tag">{category?.name || "Без категории"}</div>
-
-              <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>{fmt(p.sale_price_rub)} ₽</div>
-              <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
-                Закуп: ${fmtF(p.purchase_usd)} · Комиссия: {p.sale_commission || 10}%
-              </div>
-              <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 4 }}>
-                Выставление: {fmt(tariff.listing)} ₽ · Поднятие: {fmt(tariff.bump)} ₽
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: profit >= 0 ? "var(--success)" : "var(--danger)", marginTop: 6 }}>
-                {profit >= 0 ? "+" : ""}{fmt(profit)} ₽ / ед
-              </div>
-              <div style={{ marginTop: 9 }}>
-                <Badge status={p.status || "active"} />
-              </div>
+              <div style={{ fontSize: 11, color: "#a78bfa", background: "rgba(124,92,252,.08)", display: "inline-block", padding: "2px 7px", borderRadius: 5, marginBottom: 9 }}>{p.category || "Без категории"}</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text)" }}>{fmt(p.sale_price_rub)} ₽</div>
+              <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Закуп: ${fmtF(p.purchase_usd)} · {p.commission_type === "premium" ? "4%" : "5%"}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: profit >= 0 ? "var(--success)" : "var(--danger)", marginTop: 5 }}>{profit >= 0 ? "+" : ""}{fmt(profit)} ₽ / ед</div>
+              <div style={{ marginTop: 9 }}><Badge status={p.status || "active"} /></div>
             </div>
           );
         })}
-
-        {!filtered.length && <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "var(--text3)" }}>Товаров нет</div>}
+        {!filtered.length && <div style={{ gridColumn: "1/-1", textAlign: "center", padding: "40px", color: "var(--text3)" }}>Товаров нет</div>}
       </div>
     </div>
   );
@@ -744,1273 +616,216 @@ function RatePage({ googleRate, setGR, playerokRate, setPR, isAdmin, showToast }
   const [pInput, setPInput] = useState(playerokRate);
   const [fetching, setFetching] = useState(false);
 
-  useEffect(() => {
-    setPInput(playerokRate);
-  }, [playerokRate]);
+  useEffect(() => { setPInput(playerokRate); }, [playerokRate]);
 
   const doFetch = async () => {
     setFetching(true);
     const r = await fetchGoogleRateReal();
-    if (r) {
-      setGR(r);
-      showToast(`Google курс: ${r} ₽/$`);
-    } else {
-      showToast("Не удалось получить курс", "err");
-    }
+    if (r) { setGR(r); showToast("Google курс: " + r + " ₽/$"); }
+    else showToast("Не удалось получить — используется кеш", "err");
     setFetching(false);
   };
 
-  const block = (title, value, children) => (
+  const block = (title, value, color, children) => (
     <div className="card" style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", marginBottom: 8 }}>{title}</div>
-      <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.03em", marginBottom: 10, color: "var(--text)" }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text3)", marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.03em", marginBottom: 10, background: color, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{value}</div>
       {children}
     </div>
   );
 
   return (
     <div className="pa" style={{ maxWidth: 520 }}>
-      {block(
-        "КУРС GOOGLE (1 USD → RUB)",
-        `${fmtF(googleRate)} ₽`,
+      {block("🌐 КУРС GOOGLE (1 USD → RUB)", fmtF(googleRate) + " ₽", "linear-gradient(135deg,#7c5cfc,#5c8bfc)",
         <div>
           <button className="btn-g" onClick={doFetch} disabled={fetching}>
-            <span style={{ display: "inline-block", animation: fetching ? "spin 1s linear infinite" : "none" }}>
-              <Icon name="refresh" size={12} />
-            </span>
+            <span style={{ display: "inline-block", animation: fetching ? "spin 1s linear infinite" : "none" }}><Icon name="refresh" size={12} /></span>
             {fetching ? "Загружаем..." : "Обновить"}
           </button>
+          <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 7 }}>API: @fawazahmed0/currency-api</div>
         </div>
       )}
-
-      {block(
-        "КУРС PLAYEROK (ручной)",
-        `${fmtF(playerokRate)} ₽`,
+      {block("🎮 КУРС PLAYEROK (ручной)", fmtF(playerokRate) + " ₽", "linear-gradient(135deg,#38bdf8,#34d399)",
         isAdmin ? (
           <div style={{ display: "flex", gap: 8 }}>
-            <input type="number" value={pInput} onChange={(e) => setPInput(e.target.value)} step="0.1" className="fi" style={{ width: 120 }} />
-            <button
-              className="btn-p"
-              onClick={() => {
-                const v = parseFloat(pInput);
-                if (!Number.isNaN(v)) {
-                  setPR(v);
-                  showToast(`Курс Playerok: ${v} ₽`);
-                }
-              }}
-            >
-              Сохранить
-            </button>
+            <input type="number" value={pInput} onChange={e => setPInput(e.target.value)} step="0.1" className="fi" style={{ width: 120 }} />
+            <button className="btn-p" onClick={() => { const v = parseFloat(pInput); if (!isNaN(v)) { setPR(v); showToast("Курс Playerok: " + v + " ₽"); } }}>Сохранить</button>
           </div>
-        ) : (
-          <div style={{ fontSize: 12, color: "var(--text3)" }}>Устанавливается только admin</div>
-        )
+        ) : <div style={{ fontSize: 12, color: "var(--text3)" }}>Устанавливается только admin</div>
       )}
-    </div>
-  );
-}
-
-function WorkDaysPage({
-  workDays,
-  currentOpenDayId,
-  openWorkDay,
-  closeCurrentWorkDay,
-  selectedWorkDayId,
-  setSelectedWorkDayId,
-  getWorkDayStats,
-  products,
-  categories,
-}) {
-  const selected = workDays.find((d) => d.id === selectedWorkDayId) || null;
-  const selectedStats = selected ? getWorkDayStats(selected) : null;
-
-  return (
-    <div className="pa">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 12, color: "var(--text3)" }}>
-          История рабочих дней
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn-p" onClick={openWorkDay}>
-            <Icon name="plus" size={12} color="#fff" /> Открыть рабочий день
-          </button>
-          <button className="btn-g" onClick={closeCurrentWorkDay}>
-            Закрыть рабочий день
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 14 }}>
-        <div className="card" style={{ padding: 12 }}>
-          <div className="section-caption">Даты</div>
-          <div style={{ display: "grid", gap: 8 }}>
-            {workDays.map((d) => {
-              const stats = getWorkDayStats(d);
-              const isActive = d.id === selectedWorkDayId;
-              return (
-                <button
-                  key={d.id}
-                  onClick={() => setSelectedWorkDayId(d.id)}
-                  style={{
-                    textAlign: "left",
-                    padding: "11px 12px",
-                    borderRadius: 12,
-                    border: `1px solid ${isActive ? "rgba(168,85,247,.35)" : "var(--border)"}`,
-                    background: isActive ? "rgba(168,85,247,.08)" : "#111",
-                    color: "var(--text)",
-                    cursor: "pointer",
-                    transition: "all .15s ease",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <div style={{ fontWeight: 700 }}>{toRuDate(d.date)}</div>
-                    <Badge status={d.status} />
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 4 }}>
-                    {stats.qty} продаж · {stats.net >= 0 ? "+" : ""}{fmt(stats.net)} ₽
-                  </div>
-                </button>
-              );
-            })}
-            {!workDays.length && <div style={{ color: "var(--text3)", fontSize: 12 }}>Рабочих дней пока нет</div>}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: 14 }}>
-          {!selected && <div style={{ color: "var(--text3)" }}>Выбери рабочий день слева</div>}
-
-          {selected && selectedStats && (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 800 }}>{toRuDate(selected.date)}</div>
-                  <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 3 }}>
-                    {selectedStats.qty} продаж · выставление {fmt(selectedStats.listing)} ₽ · поднятия {fmt(selectedStats.bumps)} ₽
-                  </div>
-                </div>
-                <Badge status={selected.status} />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 14 }}>
-                <MetricCard label="Продажи" value={String(selectedStats.qty)} />
-                <MetricCard label="Профит" value={`${selectedStats.net >= 0 ? "+" : ""}${fmt(selectedStats.net)} ₽`} />
-                <MetricCard label="Оборот" value={`${fmt(selectedStats.revenue)} ₽`} />
-              </div>
-
-              <div style={{ overflowX: "auto" }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Товар</th>
-                      <th>Категория</th>
-                      <th>Цена</th>
-                      <th>Комиссия</th>
-                      <th>Выставление</th>
-                      <th>Поднятие</th>
-                      <th>Профит</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selected.orders.map((o) => {
-                      const p = products.find((x) => Number(x.id) === Number(o.product_id));
-                      const c = categories.find((x) => Number(x.id) === Number(p?.category_id));
-                      if (!p) return null;
-                      const tariff = getTariffByPrice(o.sale_price, p.sale_commission);
-                      const profit = calcProfit({
-                        salePrice: o.sale_price,
-                        buyUsd: p.purchase_usd,
-                        playerokRate: selected.playerokRate,
-                        saleCommission: p.sale_commission,
-                      });
-                      const net = profit - Number(o.bump_amount || 0) - tariff.listing;
-
-                      return (
-                        <tr key={o.id} className="tr">
-                          <td style={{ fontWeight: 700 }}>{p.name}</td>
-                          <td>{c?.name || "—"}</td>
-                          <td>{fmt(o.sale_price)} ₽</td>
-                          <td>{p.sale_commission}%</td>
-                          <td>{fmt(tariff.listing)} ₽</td>
-                          <td>{fmt(o.bump_amount || 0)} ₽</td>
-                          <td style={{ fontWeight: 700 }}>{net >= 0 ? "+" : ""}{fmt(net)} ₽</td>
-                        </tr>
-                      );
-                    })}
-                    {!selected.orders.length && (
-                      <tr>
-                        <td colSpan={7} style={{ textAlign: "center", color: "var(--text3)" }}>
-                          Продаж нет
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+      <div className="card">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          {[["Google", googleRate, "#a78bfa"], ["Playerok", playerokRate, "#38bdf8"], ["Разница", Math.abs(googleRate - playerokRate), "#fbbf24"]].map(([l, v, c]) => (
+            <div key={l} style={{ textAlign: "center", background: "var(--bg3)", borderRadius: "var(--r)", padding: "12px 6px" }}>
+              <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 5 }}>{l}</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: c }}>{fmtF(v)} ₽</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-function AddCategoryModal({ open, onClose, onAdd }) {
-  const [name, setName] = useState("");
-
-  useEffect(() => {
-    if (open) setName("");
-  }, [open]);
-
-  const submit = () => {
-    if (!name.trim()) return;
-    onAdd({ name: name.trim() });
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Добавить категорию">
-      <FI label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Steam" />
-      <MFoot onClose={onClose} onSubmit={submit} label="Добавить" />
-    </Modal>
-  );
-}
-
-function AddProductModal({ open, onClose, categories, onAdd }) {
-  const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [salePrice, setSalePrice] = useState("");
-  const [purchaseUsd, setPurchaseUsd] = useState("");
-  const [saleCommission, setSaleCommission] = useState(10);
-
-  useEffect(() => {
-    if (open) {
-      setName("");
-      setCategoryId(categories[0]?.id || "");
-      setSalePrice("");
-      setPurchaseUsd("");
-      setSaleCommission(10);
-    }
-  }, [open, categories]);
-
-  const tariff = getTariffByPrice(Number(salePrice || 0), saleCommission);
-
-  const submit = () => {
-    if (!name.trim() || !categoryId || !salePrice) return;
-    onAdd({
-      name: name.trim(),
-      category_id: Number(categoryId),
-      sale_price_rub: Number(salePrice),
-      purchase_usd: Number(purchaseUsd || 0),
-      sale_commission: Number(saleCommission),
-      status: "active",
-    });
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Добавить товар">
-      <FI label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Steam 20$" />
-      <FS
-        label="Категория"
-        value={categoryId}
-        onChange={(e) => setCategoryId(e.target.value)}
-        options={[
-          { value: "", label: "— выберите —" },
-          ...categories.map((c) => ({ value: c.id, label: c.name })),
-        ]}
-      />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI label="Цена товара (₽)" type="number" value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
-        <FI label="Закупка ($)" type="number" value={purchaseUsd} onChange={(e) => setPurchaseUsd(e.target.value)} />
-      </div>
-      <FS
-        label="Комиссия с продажи"
-        value={saleCommission}
-        onChange={(e) => setSaleCommission(Number(e.target.value))}
-        options={[
-          { value: 10, label: "10%" },
-          { value: 20, label: "20%" },
-        ]}
-      />
-      <div className="note-box" style={{ marginTop: 10 }}>
-        Выставление: <b>{fmt(tariff.listing)} ₽</b> · Поднятие: <b>{fmt(tariff.bump)} ₽</b>
-      </div>
-      <MFoot onClose={onClose} onSubmit={submit} label="Добавить" />
-    </Modal>
-  );
-}
-
-function EditProductModal({ open, onClose, product, categories, onSave }) {
-  const [form, setForm] = useState(null);
-
-  useEffect(() => {
-    if (product && open) {
-      setForm({
-        name: product.name || "",
-        category_id: product.category_id || "",
-        sale_price_rub: product.sale_price_rub || "",
-        purchase_usd: product.purchase_usd || "",
-        sale_commission: product.sale_commission || 10,
-        status: product.status || "active",
-      });
-    }
-  }, [product, open]);
-
-  if (!form) return null;
-
-  const tariff = getTariffByPrice(form.sale_price_rub, form.sale_commission);
-
-  const submit = () => {
-    onSave(product.id, {
-      ...form,
-      category_id: Number(form.category_id),
-      sale_price_rub: Number(form.sale_price_rub),
-      purchase_usd: Number(form.purchase_usd || 0),
-      sale_commission: Number(form.sale_commission || 10),
-    });
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Редактировать товар">
-      <FI label="Название" value={form.name} onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))} />
-      <FS
-        label="Категория"
-        value={form.category_id}
-        onChange={(e) => setForm((s) => ({ ...s, category_id: e.target.value }))}
-        options={categories.map((c) => ({ value: c.id, label: c.name }))}
-      />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <FI label="Цена товара (₽)" type="number" value={form.sale_price_rub} onChange={(e) => setForm((s) => ({ ...s, sale_price_rub: e.target.value }))} />
-        <FI label="Закупка ($)" type="number" value={form.purchase_usd} onChange={(e) => setForm((s) => ({ ...s, purchase_usd: e.target.value }))} />
-      </div>
-      <FS
-        label="Комиссия с продажи"
-        value={form.sale_commission}
-        onChange={(e) => setForm((s) => ({ ...s, sale_commission: Number(e.target.value) }))}
-        options={[
-          { value: 10, label: "10%" },
-          { value: 20, label: "20%" },
-        ]}
-      />
-      <FS
-        label="Статус"
-        value={form.status}
-        onChange={(e) => setForm((s) => ({ ...s, status: e.target.value }))}
-        options={[
-          { value: "active", label: "Активен" },
-          { value: "inactive", label: "Неактивен" },
-        ]}
-      />
-      <div className="note-box" style={{ marginTop: 10 }}>
-        Выставление: <b>{fmt(tariff.listing)} ₽</b> · Поднятие: <b>{fmt(tariff.bump)} ₽</b>
-      </div>
-      <MFoot onClose={onClose} onSubmit={submit} label="Сохранить" />
-    </Modal>
-  );
-}
-
-function AddWorkerModal({ open, onClose, onAdd }) {
-  const [name, setName] = useState("");
-  const [share, setShare] = useState(50);
-  const [keyValue, setKeyValue] = useState("");
-
-  useEffect(() => {
-    if (open) {
-      setName("");
-      setShare(50);
-      setKeyValue(`worker-${Math.random().toString(36).slice(2, 8)}`);
-    }
-  }, [open]);
-
-  const submit = () => {
-    if (!name.trim() || !keyValue.trim()) return;
-    onAdd({
-      name: name.trim(),
-      share: Number(share) || 50,
-      key: keyValue.trim(),
-    });
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Добавить воркера">
-      <FI label="Имя" value={name} onChange={(e) => setName(e.target.value)} />
-      <FI label="Доля (%)" type="number" value={share} onChange={(e) => setShare(e.target.value)} />
-      <FI label="Ключ" value={keyValue} onChange={(e) => setKeyValue(e.target.value)} />
-      <MFoot onClose={onClose} onSubmit={submit} label="Создать" />
-    </Modal>
-  );
-}
-
-function OrdersModal({ open, onClose, orders, loading }) {
-  return (
-    <Modal open={open} onClose={onClose} title="Все покупки" width={860}>
-      <div
-        style={{
-          display: "grid",
-          gap: 10,
-          maxHeight: "72vh",
-          overflowY: "auto",
-          paddingRight: 4,
-        }}
-      >
-        {loading && (
-          <div style={{ color: "var(--text3)", fontSize: 13 }}>
-            Загружаем заказы...
-          </div>
-        )}
-
-        {!loading && !orders.length && (
-          <div style={{ color: "var(--text3)", fontSize: 13 }}>
-            Заказов пока нет
-          </div>
-        )}
-
-        {!loading &&
-          orders.map((order) => {
-            const price = order.item?.price || order.item?.raw_price || 0;
-            const status = getOrderUiStatus(order);
-
-            return (
-              <div
-                key={order.id}
-                className="card"
-                style={{
-                  padding: 14,
-                  background: "rgba(168,85,247,.04)",
-                  border: "1px solid rgba(168,85,247,.12)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    alignItems: "flex-start",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 800,
-                        color: "var(--text)",
-                        marginBottom: 6,
-                      }}
-                    >
-                      {order.item?.name || "Без названия"}
-                    </div>
-
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 12,
-                        flexWrap: "wrap",
-                        fontSize: 11,
-                        color: "var(--text3)",
-                      }}
-                    >
-                      <span>ID: {order.id}</span>
-                      <span>Сумма: {rub(price)} ₽</span>
-                      <span>Время: {toRuTime(order.created_at || order.createdAt)}</span>
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <Badge status={status} />
-
-                    <button
-                      className="btn-g"
-                      style={{ padding: "7px 10px", fontSize: 11 }}
-                      onClick={() => {
-                        const chatUrl =
-                          order?.chat_url ||
-                          order?.chatUrl ||
-                          order?.buyer_chat_url ||
-                          order?.buyerChatUrl;
-
-                        if (chatUrl) {
-                          window.open(chatUrl, "_blank");
-                        } else {
-                          alert("Ссылка на чат пока не пришла с backend");
-                        }
-                      }}
-                    >
-                      Перейти в чат
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-      </div>
-    </Modal>
-  );
-}
-
-const GLOBAL_STYLES = `
-:root{
-  --bg:#07050a;
-  --bg2:#0d0913;
-  --bg3:#140f1d;
-  --card:rgba(18,12,24,.96);
-  --border:rgba(168,85,247,.12);
-  --border2:rgba(168,85,247,.24);
-  --text:#f5ebff;
-  --text2:#dccff3;
-  --text3:#9f91b9;
-  --accent:#a855f7;
-  --accent2:#7e22ce;
-  --success:#f2e7ff;
-  --danger:#cbbad9;
-  --warning:#d8b4fe;
-  --r:12px;
-  --r2:18px;
-}
-*{box-sizing:border-box}
-html,body,#root{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
-body{
-  background:
-  radial-gradient(circle at top left, rgba(168,85,247,.08), transparent 28%),
-  radial-gradient(circle at bottom right, rgba(126,34,206,.08), transparent 26%),
-  #07050a
-}
-.pa{animation:fadeIn .22s ease}
-.card{
-  background:linear-gradient(180deg, rgba(24,16,31,.96), rgba(16,10,22,.96));
-  border:1px solid var(--border);
-  border-radius:var(--r2);
-  padding:16px;
-  box-shadow:0 12px 34px rgba(0,0,0,.32);
-  backdrop-filter:blur(8px);
-}
-.soft-rise{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
-.soft-rise:hover{transform:translateY(-2px);border-color:var(--border2);box-shadow:0 18px 42px rgba(0,0,0,.36)}
-.fi{
-  width:100%;
-  background:#110d17;
-  border:1px solid rgba(168,85,247,.16);
-  border-radius:12px;
-  color:var(--text);
-  padding:11px 12px;
-  outline:none;
-  font-size:13px;
-  transition:border-color .16s ease, box-shadow .16s ease;
-}
-.fi:focus{
-  border-color:rgba(168,85,247,.5);
-  box-shadow:0 0 0 4px rgba(168,85,247,.12);
-}
-.btn-p,.btn-g,.btn-i,.cnt,.chip,.switcher-btn,.auth-submit{
-  border:none;
-  font-family:inherit;
-}
-.btn-p{
-  background:linear-gradient(135deg,#a855f7,#7e22ce);
-  color:#fff;
-  border-radius:10px;
-  padding:9px 13px;
-  font-size:12px;
-  font-weight:800;
-  cursor:pointer;
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  transition:transform .12s ease, opacity .12s ease;
-  box-shadow:0 8px 26px rgba(168,85,247,.22);
-}
-.btn-p:hover{transform:translateY(-1px)}
-.btn-p:active{transform:scale(.97)}
-.btn-g{
-  background:#140f1d;
-  color:var(--text);
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:9px 13px;
-  font-size:12px;
-  font-weight:700;
-  cursor:pointer;
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  transition:transform .12s ease,border-color .16s ease,background .16s ease;
-}
-.btn-g:hover{transform:translateY(-1px);border-color:var(--border2);background:#181221}
-.btn-i{
-  width:26px;
-  height:26px;
-  border-radius:8px;
-  background:#130f1b;
-  color:var(--text2);
-  border:1px solid var(--border);
-  display:grid;
-  place-items:center;
-  cursor:pointer;
-  transition:all .14s ease;
-}
-.btn-i:hover{border-color:var(--border2);color:#fff;transform:translateY(-1px)}
-.btn-i.d:hover{background:#1a1323}
-.badge{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  border-radius:999px;
-  padding:4px 9px;
-  font-size:10.5px;
-  font-weight:700;
-  letter-spacing:.03em;
-}
-.cnt{
-  width:26px;
-  height:26px;
-  border-radius:8px;
-  background:#130f1b;
-  color:#fff;
-  border:1px solid var(--border);
-  cursor:pointer;
-  transition:all .14s ease;
-}
-.cnt:hover{border-color:var(--border2);transform:translateY(-1px)}
-.nav-item{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:11px 12px;
-  margin-bottom:4px;
-  border-radius:12px;
-  color:var(--text3);
-  font-size:13px;
-  font-weight:700;
-  cursor:pointer;
-  transition:all .14s ease;
-}
-.nav-item:hover{background:#171120;color:var(--text)}
-.nav-item.active{
-  background:linear-gradient(180deg, rgba(168,85,247,.16), rgba(168,85,247,.08));
-  color:#fff;
-  border:1px solid rgba(168,85,247,.28);
-}
-table{width:100%;border-collapse:collapse}
-th{
-  text-align:left;
-  padding:12px 14px;
-  font-size:10.5px;
-  color:var(--text3);
-  text-transform:uppercase;
-  letter-spacing:.08em;
-  border-bottom:1px solid var(--border);
-  white-space:nowrap;
-}
-td{
-  padding:12px 14px;
-  border-bottom:1px solid rgba(168,85,247,.08);
-  font-size:12px;
-}
-.tr:hover{background:rgba(168,85,247,.04)}
-.block-title{
-  font-size:13px;
-  font-weight:800;
-  color:var(--text);
-  margin-bottom:14px;
-  padding-bottom:12px;
-  border-bottom:1px solid var(--border);
-}
-.note-box{
-  padding:13px 14px;
-  background:rgba(168,85,247,.06);
-  border:1px solid rgba(168,85,247,.14);
-  border-radius:12px;
-  color:var(--text2);
-  font-size:12px;
-}
-.section-caption{
-  font-size:10.5px;
-  color:var(--text3);
-  text-transform:uppercase;
-  letter-spacing:.08em;
-  font-weight:700;
-  margin-bottom:8px;
-}
-.chip{
-  padding:6px 12px;
-  border-radius:999px;
-  background:#140f1d;
-  color:var(--text2);
-  border:1px solid var(--border);
-  font-size:12px;
-  font-weight:700;
-  cursor:pointer;
-  transition:all .14s ease;
-}
-.chip.active{background:linear-gradient(135deg,#a855f7,#7e22ce);color:#fff;border-color:#a855f7}
-.cat-pill{
-  display:flex;
-  align-items:center;
-  gap:5px;
-  padding:5px 9px;
-  background:#140f1d;
-  border-radius:9px;
-  border:1px solid var(--border);
-}
-.cat-tag{
-  font-size:11px;
-  color:#f3e8ff;
-  background:rgba(168,85,247,.12);
-  display:inline-block;
-  padding:3px 8px;
-  border-radius:7px;
-  margin-bottom:9px;
-  border:1px solid rgba(168,85,247,.18);
-}
-.mini-stat{
-  text-align:center;
-  background:#130f1b;
-  border-radius:12px;
-  border:1px solid var(--border);
-  padding:12px 6px;
-}
-.error-box{
-  font-size:12px;
-  color:#f3e8ff;
-  padding:9px 11px;
-  background:rgba(168,85,247,.08);
-  border-radius:10px;
-  margin-bottom:12px;
-  border:1px solid rgba(168,85,247,.18);
-}
-.auth-wrap{
-  min-height:100vh;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  position:relative;
-  overflow:hidden;
-  background:#07050a;
-}
-.auth-glow{
-  position:fixed;
-  inset:0;
-  background:
-   radial-gradient(circle at 20% 20%, rgba(168,85,247,.09), transparent 26%),
-   radial-gradient(circle at 80% 80%, rgba(126,34,206,.08), transparent 28%);
-  pointer-events:none;
-}
-.auth-card{
-  width:390px;
-  max-width:94vw;
-  background:rgba(18,12,24,.96);
-  border:1px solid rgba(168,85,247,.16);
-  border-radius:22px;
-  padding:34px 32px;
-  box-shadow:0 40px 100px rgba(0,0,0,.6);
-  animation:scaleIn .3s ease;
-  position:relative;
-  z-index:1;
-}
-.logo-box{
-  width:46px;
-  height:46px;
-  border-radius:14px;
-  background:linear-gradient(135deg,#a855f7,#7e22ce);
-  color:#fff;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size:20px;
-  margin:0 auto 12px;
-  box-shadow:0 10px 30px rgba(168,85,247,.18);
-}
-.switcher{
-  display:flex;
-  background:#110d17;
-  border-radius:12px;
-  padding:3px;
-  margin-bottom:20px;
-  gap:3px;
-  border:1px solid var(--border);
-}
-.switcher-btn{
-  flex:1;
-  padding:8px 0;
-  border-radius:9px;
-  cursor:pointer;
-  font-weight:700;
-  font-size:13px;
-  transition:all .16s ease;
-  background:transparent;
-  color:var(--text3);
-}
-.switcher-btn.active{
-  background:linear-gradient(135deg,#a855f7,#7e22ce);
-  color:#fff;
-}
-.auth-submit{
-  width:100%;
-  padding:11px;
-  border-radius:12px;
-  background:linear-gradient(135deg,#a855f7,#7e22ce);
-  color:#fff;
-  font-size:14px;
-  font-weight:800;
-  cursor:pointer;
-  transition:transform .12s ease, opacity .12s ease;
-}
-.auth-submit:hover{transform:translateY(-1px)}
-.auth-submit:active{transform:scale(.98)}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes scaleIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
-@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-@keyframes slideR{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
-@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-@media (max-width: 1400px){
-  .dashboard-top-grid{grid-template-columns:repeat(4, minmax(0, 1fr)) !important;}
-  .dashboard-main-grid{grid-template-columns:1fr !important;}
-}
-
-@media (max-width: 1100px){
-  .grid-3{grid-template-columns:repeat(2,1fr)!important}
-  .dashboard-top-grid{grid-template-columns:repeat(2, minmax(0, 1fr)) !important;}
-}
-
-@media (max-width: 900px){
-  .mobile-stack{grid-template-columns:1fr!important}
-  .dashboard-top-grid{grid-template-columns:1fr !important;}
-}
-`;
-
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [auth, setAuth] = useState(null);
   const [page, setPage] = useState("dashboard");
-
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [sheets, setSheets] = useState([]);
+  const [sheetOrders, setSheetOrders] = useState([]);
+  const [sheetBumps, setSheetBumps] = useState([]);
   const [workers, setWorkers] = useState([]);
-
   const [googleRate, _setGR] = useState(() => ls(LS.googleRate, 91.4));
   const [playerokRate, _setPR] = useState(() => ls(LS.playerokRate, 88.0));
+  const [closedSnaps, setClosedSnaps] = useState(() => ls(LS.closedSnaps, {}));
   const [workerShares, setWorkerShares] = useState(() => ls(LS.workerShares, {}));
   const [dailyCounts, setDailyCounts] = useState(() => ls(LS.dailyCounts, {}));
-  const [workDays, setWorkDays] = useState(() => ls(LS.workDays, []));
-  const [cloudLoaded, setCloudLoaded] = useState(false);
-  const [ordersModalOpen, setOrdersModalOpen] = useState(false);
-  const [selectedWorkDayId, setSelectedWorkDayId] = useState(null);
-
-  const [playerokStats, setPlayerokStats] = useState({
-  reviews: 0,
-  rating: 0,
-  balance_total: 0,
-  balance_available: 0,
-  balance_frozen: 0,
-  balance_withdrawable: 0,
-  pending_income: 0,
-  pending_orders: 0,
-  completed_today: 0,
-  last_sync_at: null,
-  sync_ok: false,
- });
-
-  const [playerokOrders, setPlayerokOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-
-  const [statsLoading, setStatsLoading] = useState(false);
   const [modals, setModals] = useState({});
   const [editTarget, setEditTarget] = useState(null);
-
   const { toast, show: showToast } = useToast();
 
-  const setGR = (v) => {
-    _setGR(v);
-    lsSet(LS.googleRate, v);
-  };
-
-  const setPR = (v) => {
-    _setPR(v);
-    lsSet(LS.playerokRate, v);
-  };
-
-  const openM = (name) => setModals((m) => ({ ...m, [name]: true }));
-  const closeM = (name) => setModals((m) => ({ ...m, [name]: false }));
-
-  const loadCloudState = useCallback(async (userId) => {
-  if (!supabase || !userId) return;
-
-  const { data, error } = await supabase
-    .from("app_state")
-    .select("*")
-    .eq("user_id", userId)
-    .single();
-
-  if (error) {
-    console.log("app_state пока пустая или не найдена", error.message);
-    return;
-  }
-
-  if (data) {
-    setWorkDays(data.work_days || []);
-    setDailyCounts(data.daily_counts || {});
-    setWorkerShares(data.worker_shares || {});
-    setGR(data.google_rate ?? 91.4);
-    setPR(data.playerok_rate ?? 88.0);
-    setSelectedWorkDayId(data.selected_work_day_id || null);
-  }
-}, []);
-
-const saveCloudState = useCallback(async (nextState) => {
-  if (!supabase || !auth?.user?.id) return;
-
-  const payload = {
-    user_id: auth.user.id,
-    work_days: nextState.workDays,
-    daily_counts: nextState.dailyCounts,
-    worker_shares: nextState.workerShares,
-    google_rate: nextState.googleRate,
-    playerok_rate: nextState.playerokRate,
-    selected_work_day_id: nextState.selectedWorkDayId,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await supabase
-    .from("app_state")
-    .upsert(payload, { onConflict: "user_id" });
-
-  if (error) {
-    console.error("Ошибка сохранения app_state:", error);
-  }
-}, [auth]);
-
-  const loadPlayerokStats = useCallback(async () => {
-  if (!BACKEND_URL) return;
-
-  try {
-    setStatsLoading(true);
-    const res = await fetch(`${BACKEND_URL}/stats`);
-    if (!res.ok) throw new Error("Не удалось загрузить stats");
-    const data = await res.json();
-    setPlayerokStats(data);
-  } catch (e) {
-    console.error("Ошибка загрузки Playerok stats:", e);
-  } finally {
-    setStatsLoading(false);
-  }
-}, []);
-
-  const loadPlayerokOrders = useCallback(async () => {
-  if (!BACKEND_URL) return;
-
-  try {
-    setOrdersLoading(true);
-    const res = await fetch(`${BACKEND_URL}/orders`);
-    if (!res.ok) throw new Error("Не удалось загрузить orders");
-    const data = await res.json();
-    setPlayerokOrders(Array.isArray(data.orders) ? data.orders : []);
-  } catch (e) {
-    console.error("Ошибка загрузки Playerok orders:", e);
-  } finally {
-    setOrdersLoading(false);
-  }
-}, []);
-  useEffect(() => {
-    lsSet(LS.workDays, workDays);
-  }, [workDays]);
-
-  useEffect(() => {
-    lsSet(LS.workerShares, workerShares);
-  }, [workerShares]);
-
-  useEffect(() => {
-    lsSet(LS.dailyCounts, dailyCounts);
-  }, [dailyCounts]);
+  const setGR = v => { _setGR(v); lsSet(LS.googleRate, v); };
+  const setPR = v => { _setPR(v); lsSet(LS.playerokRate, v); };
+  const openM = n => setModals(m => ({ ...m, [n]: true }));
+  const closeM = n => setModals(m => ({ ...m, [n]: false }));
 
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) return;
-      supabase.from("profiles").select("role").eq("id", session.user.id).single().then(({ data: p }) => {
-        setAuth({ user: session.user, role: p?.role || "admin", session });
-      });
+      if (session) {
+        supabase.from("profiles").select("role").eq("id", session.user.id).single().then(({ data: p }) => {
+          setAuth({ user: session.user, role: p?.role || "admin", session });
+        });
+      }
     });
   }, []);
 
-  useEffect(() => {
-    if (auth) loadData();
-  }, [auth]);
-
-  useEffect(() => {
-  if (!auth?.user?.id || !supabase || !cloudLoaded) return;
-
-  saveCloudState({
-    workDays,
-    dailyCounts,
-    workerShares,
-    googleRate,
-    playerokRate,
-    selectedWorkDayId,
-  });
-}, [
-  auth?.user?.id,
-  cloudLoaded,
-  workDays,
-  dailyCounts,
-  workerShares,
-  googleRate,
-  playerokRate,
-  selectedWorkDayId,
-  saveCloudState,
-]);
-
-useEffect(() => {
-  if (!BACKEND_URL) return;
-
-  loadPlayerokStats();
-
-  const timer = setInterval(() => {
-    loadPlayerokStats();
-  }, 30000);
-
-  return () => clearInterval(timer);
-}, [loadPlayerokStats]);
-
- useEffect(() => {
-  if (!BACKEND_URL) return;
-
-  loadPlayerokOrders();
-
-  const timer = setInterval(() => {
-    loadPlayerokOrders();
-  }, 15000);
-
-  return () => clearInterval(timer);
- }, [loadPlayerokOrders]);
-
-  const loadDemo = () => {
-    setCategories([
-      { id: 1, name: "Steam" },
-      { id: 2, name: "Valorant" },
-      { id: 3, name: "Roblox" },
-    ]);
-
-    setProducts([
-      { id: 1, name: "Steam 10$", category_id: 1, category: "Steam", sale_price_rub: 1050, purchase_usd: 10, sale_commission: 10, status: "active" },
-      { id: 2, name: "Steam 20$", category_id: 1, category: "Steam", sale_price_rub: 2050, purchase_usd: 20, sale_commission: 10, status: "active" },
-      { id: 3, name: "Valorant 1000VP", category_id: 2, category: "Valorant", sale_price_rub: 750, purchase_usd: 7.5, sale_commission: 20, status: "active" },
-      { id: 4, name: "Roblox 400R$", category_id: 3, category: "Roblox", sale_price_rub: 350, purchase_usd: 3.5, sale_commission: 10, status: "active" },
-    ]);
-
-    setWorkers([{ id: 1, name: "Артём", key: "worker-demo", share: 50 }]);
-
-    const demoDays = ls(LS.workDays, []);
-    if (!demoDays.length) {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-
-      const yIso = yesterday.toISOString().slice(0, 10);
-      const tIso = todayKey();
-
-      const sample = [
-        {
-          id: 1001,
-          date: yIso,
-          status: "closed",
-          playerokRate: 88,
-          orders: [
-            { id: 1, product_id: 1, sale_price: 1050, bump_amount: 9, created_at: new Date(yesterday).toISOString() },
-            { id: 2, product_id: 2, sale_price: 2050, bump_amount: 25, created_at: new Date(yesterday).toISOString() },
-          ],
-        },
-        {
-          id: 1002,
-          date: tIso,
-          status: "open",
-          playerokRate: 88,
-          orders: [],
-        },
-      ];
-      setWorkDays(sample);
-      setSelectedWorkDayId(sample[0].id);
-    } else {
-      setSelectedWorkDayId(demoDays[0]?.id || null);
-    }
-    
-    setCloudLoaded(true);
-
-  };
+  useEffect(() => { if (auth) loadData(); }, [auth]);
 
   const loadData = async () => {
-  if (!supabase) {
-    loadDemo();
-    return;
-  }
-
-  setCloudLoaded(false);
-
-  const isAdmin = auth?.role === "admin";
-
-  const [cats, prods, wks] = await Promise.all([
-    supabase.from("categories").select("*").order("name"),
-    supabase.from("products").select("*, categories(name)").order("name"),
-    isAdmin ? supabase.from("worker_keys").select("*") : Promise.resolve({ data: [] }),
-  ]);
-
-  setCategories(cats.data || []);
-  setProducts((prods.data || []).map((p) => ({ ...p, category: p.categories?.name || "" })));
-  setWorkers(wks.data || []);
-
-  await loadCloudState(auth.user.id);
-  setCloudLoaded(true);
-
-};
-
-  const getWorkDayStats = useCallback((day) => {
-    if (!day) return { qty: 0, revenue: 0, listing: 0, bumps: 0, gross: 0, net: 0 };
-
-    const totals = day.orders.reduce(
-      (acc, o) => {
-        const p = products.find((x) => Number(x.id) === Number(o.product_id));
-        if (!p) return acc;
-        const tariff = getTariffByPrice(o.sale_price, p.sale_commission);
-        const gross = calcProfit({
-          salePrice: o.sale_price,
-          buyUsd: p.purchase_usd,
-          playerokRate: day.playerokRate || playerokRate,
-          saleCommission: p.sale_commission,
-        });
-        acc.qty += 1;
-        acc.revenue += Number(o.sale_price || 0);
-        acc.listing += tariff.listing;
-        acc.bumps += Number(o.bump_amount || 0);
-        acc.gross += gross;
-        acc.net += gross - tariff.listing - Number(o.bump_amount || 0);
-        return acc;
-      },
-      { qty: 0, revenue: 0, listing: 0, bumps: 0, gross: 0, net: 0 }
-    );
-
-    return {
-      qty: Math.round(totals.qty),
-      revenue: Math.round(totals.revenue),
-      listing: Math.round(totals.listing),
-      bumps: Math.round(totals.bumps),
-      gross: Math.round(totals.gross),
-      net: Math.round(totals.net),
-    };
-  }, [products, playerokRate]);
-
-  const currentOpenDay = workDays.find((d) => d.status === "open") || null;
-  const currentOpenDayId = currentOpenDay?.id || null;
-  const currentOpenStats = currentOpenDay ? getWorkDayStats(currentOpenDay) : null;
-
-  const openWorkDay = () => {
-    const existing = workDays.find((d) => d.status === "open");
-    if (existing) {
-      showToast("Рабочий день уже открыт", "err");
-      setSelectedWorkDayId(existing.id);
-      return;
-    }
-
-    const day = {
-      id: Date.now(),
-      date: todayKey(),
-      status: "open",
-      playerokRate,
-      orders: [],
-    };
-
-    const next = [day, ...workDays];
-    setWorkDays(next);
-    setSelectedWorkDayId(day.id);
-    showToast("Рабочий день открыт");
+    if (!supabase) { loadDemo(); return; }
+    const isAdmin = auth?.role === "admin";
+    const [cats, prods, daySheets, orders, bumps, wks] = await Promise.all([
+      supabase.from("categories").select("*").order("name"),
+      supabase.from("products").select("*, categories(name)").order("name"),
+      isAdmin
+        ? supabase.from("day_sheets").select("*").order("created_at", { ascending: false })
+        : supabase.from("day_sheets").select("*").eq("worker_id", auth.workerData?.id).order("created_at", { ascending: false }),
+      supabase.from("sheet_orders").select("*"),
+      supabase.from("sheet_bumps").select("*"),
+      isAdmin ? supabase.from("worker_keys").select("*") : Promise.resolve({ data: [] }),
+    ]);
+    setCategories(cats.data || []);
+    setProducts((prods.data || []).map(p => ({ ...p, category: p.categories?.name || "" })));
+    setSheets(daySheets.data || []);
+    setSheetOrders(orders.data || []);
+    setSheetBumps(bumps.data || []);
+    setWorkers(wks.data || []);
   };
 
-  const closeCurrentWorkDay = () => {
-    const existing = workDays.find((d) => d.status === "open");
-    if (!existing) {
-      showToast("Нет открытого рабочего дня", "err");
-      return;
-    }
-
-    const next = workDays.map((d) =>
-      d.id === existing.id
-        ? { ...d, status: "closed", playerokRate: existing.playerokRate || playerokRate }
-        : d
-    );
-    setWorkDays(next);
-    showToast("Рабочий день закрыт");
+  const loadDemo = () => {
+    setCategories([{ id: 1, name: "Steam" }, { id: 2, name: "Valorant" }, { id: 3, name: "Roblox" }]);
+    setProducts([
+      { id: 1, name: "Steam 10$", category_id: 1, category: "Steam", sale_price_rub: 1050, purchase_usd: 10, commission_type: "standard", status: "active" },
+      { id: 2, name: "Steam 20$", category_id: 1, category: "Steam", sale_price_rub: 2050, purchase_usd: 20, commission_type: "standard", status: "active" },
+      { id: 3, name: "Valorant 1000VP", category_id: 2, category: "Valorant", sale_price_rub: 750, purchase_usd: 7.5, commission_type: "premium", status: "active" },
+      { id: 4, name: "Roblox 400R$", category_id: 3, category: "Roblox", sale_price_rub: 350, purchase_usd: 3.5, commission_type: "standard", status: "active" },
+    ]);
+    setSheets([
+      { id: 1, name: "20.04.2025", status: "open", worker_id: null, created_at: new Date().toISOString() },
+      { id: 2, name: "19.04.2025", status: "closed", worker_id: 1, created_at: new Date(Date.now() - 86400000).toISOString() },
+    ]);
+    setSheetOrders([
+      { id: 1, sheet_id: 1, product_id: 1, sale_price: 1050, status: "sold", created_at: new Date().toISOString() },
+      { id: 2, sheet_id: 1, product_id: 3, sale_price: 750, status: "sold", created_at: new Date().toISOString() },
+      { id: 3, sheet_id: 2, product_id: 2, sale_price: 2050, status: "sold", created_at: new Date(Date.now() - 86400000).toISOString() },
+    ]);
+    setSheetBumps([{ id: 1, sheet_id: 1, amount: 80, created_at: new Date().toISOString() }]);
+    setWorkers([{ id: 1, name: "Артём", key: "worker-demo", share: 50 }]);
   };
 
-  const addOrderToCurrentDay = (productId, salePrice, bumpAmount = 0) => {
-    const openDay = workDays.find((d) => d.status === "open");
-    if (!openDay) {
-      showToast("Сначала открой рабочий день", "err");
-      return false;
-    }
+  const getSheetProfit = useCallback((sheetId) => {
+    if (closedSnaps[sheetId]) return closedSnaps[sheetId];
+    const orders = sheetOrders.filter(o => o.sheet_id === sheetId && o.status === "sold");
+    const bumpsAmt = sheetBumps.filter(b => b.sheet_id === sheetId).reduce((s, b) => s + b.amount, 0);
+    const gross = orders.reduce((s, o) => {
+      const p = products.find(x => x.id === o.product_id);
+      return s + (p ? calcProfit({ salePrice: o.sale_price, buyUsd: p.purchase_usd, playerokRate, commType: p.commission_type }) : 0);
+    }, 0);
+    return { gross: Math.round(gross), bumps: Math.round(bumpsAmt), net: Math.round(gross - bumpsAmt) };
+  }, [sheetOrders, sheetBumps, products, playerokRate, closedSnaps]);
 
-    const newOrder = {
-      id: Date.now(),
-      product_id: Number(productId),
-      sale_price: Number(salePrice),
-      bump_amount: Number(bumpAmount || 0),
-      created_at: new Date().toISOString(),
-    };
-
-    const next = workDays.map((d) =>
-      d.id === openDay.id ? { ...d, orders: [...d.orders, newOrder] } : d
-    );
-
-    setWorkDays(next);
-    setSelectedWorkDayId(openDay.id);
-    return true;
-  };
+  const mySheets = sheets.filter(s => !s.worker_id);
+  const wSheets = sheets.filter(s => s.worker_id);
+  const myProfit = mySheets.reduce((s, sh) => s + getSheetProfit(sh.id).net, 0);
+  const workerProfit = wSheets.reduce((s, sh) => s + Math.round(getSheetProfit(sh.id).net * (workerShares[sh.id] ?? 50) / 100), 0);
+  const adminFromW = wSheets.reduce((s, sh) => s + Math.round(getSheetProfit(sh.id).net * (100 - (workerShares[sh.id] ?? 50)) / 100), 0);
 
   const dk = todayKey();
   const dayEntry = dailyCounts[dk] || {};
 
   const updateDay = (productId, field, delta) => {
     const prev = dailyCounts[dk]?.[productId] || { qty: 0, bumps: 0 };
-    const next = { ...prev, [field]: Math.max(0, Number(prev[field] || 0) + Number(delta || 0)) };
+    const next = { ...prev, [field]: Math.max(0, (prev[field] || 0) + delta) };
     const upd = { ...dailyCounts, [dk]: { ...(dailyCounts[dk] || {}), [productId]: next } };
     setDailyCounts(upd);
+    lsSet(LS.dailyCounts, upd);
   };
 
-  const totalQtyToday = Object.values(dayEntry).reduce((s, e) => s + Number(e.qty || 0), 0);
-  const totalBumpsToday = Object.values(dayEntry).reduce((s, e) => s + Number(e.bumps || 0), 0);
-
-  const grossToday = products.reduce((sum, p) => {
+  const totalQtyToday = Object.values(dayEntry).reduce((s, e) => s + (e.qty || 0), 0);
+  const totalBumpsToday = Object.values(dayEntry).reduce((s, e) => s + (e.bumps || 0), 0);
+  const grossToday = products.reduce((s, p) => {
     const e = dayEntry[p.id] || { qty: 0 };
-    return sum + Math.round(calcProfit({
-      salePrice: p.sale_price_rub,
-      buyUsd: p.purchase_usd,
-      playerokRate,
-      saleCommission: p.sale_commission,
-    })) * Number(e.qty || 0);
+    return s + Math.round(calcProfit({ salePrice: p.sale_price_rub, buyUsd: p.purchase_usd, playerokRate, commType: p.commission_type })) * e.qty;
   }, 0);
-
   const netToday = grossToday - totalBumpsToday;
+  const revenueToday = products.reduce((s, p) => {
+    const e = dayEntry[p.id] || { qty: 0 };
+    return s + (Number(p.sale_price_rub || 0) * Number(e.qty || 0));
+  }, 0);
+  const avgCheckToday = totalQtyToday > 0 ? Math.round(revenueToday / totalQtyToday) : 0;
+  const totalClosedDays = sheets.filter(s => s.status === "closed").length;
+  const totalSoldOrders = sheetOrders.filter(o => o.status === "sold").length;
+  const pendingCount = sheets.filter(s => s.status === "open").length;
+  const combinedProfit = myProfit + adminFromW;
+  const recentOrders = [...sheetOrders]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 5)
+    .map(order => {
+      const product = products.find(p => p.id === order.product_id);
+      return {
+        ...order,
+        product,
+        time: toRuTime(order.created_at),
+        statusLabel: order.status === "sold" ? "Продано" : "Ожидание",
+      };
+    });
 
-  const closedDaysProfit = workDays
-    .filter((d) => d.status === "closed")
-    .reduce((s, d) => s + getWorkDayStats(d).net, 0);
-
-  const openDayProfit = currentOpenDay ? getWorkDayStats(currentOpenDay).net : 0;
-  const totalProfit = closedDaysProfit + openDayProfit;
-
-  const chartData = workDays
-    .slice()
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-    .slice(-7)
-    .map((d) => ({
-      l: toRuDate(d.date).slice(0, 5),
-      v: Math.max(0, getWorkDayStats(d).net),
-    }));
-
-  const logout = async () => {
-    if (supabase) await supabase.auth.signOut();
-    setAuth(null);
+  const closeSheet = async id => {
+    const snap = getSheetProfit(id);
+    const ns = { ...closedSnaps, [id]: snap };
+    setClosedSnaps(ns); lsSet(LS.closedSnaps, ns);
+    if (supabase) await supabase.from("day_sheets").update({ status: "closed" }).eq("id", id);
+    setSheets(s => s.map(x => x.id === id ? { ...x, status: "closed" } : x));
+    showToast("Лист закрыт");
   };
+
+  const deleteSheet = async id => {
+    if (!window.confirm("Удалить лист?")) return;
+    if (supabase) {
+      await supabase.from("sheet_orders").delete().eq("sheet_id", id);
+      await supabase.from("sheet_bumps").delete().eq("sheet_id", id);
+      await supabase.from("day_sheets").delete().eq("id", id);
+    }
+    setSheets(s => s.filter(x => x.id !== id));
+    setSheetOrders(o => o.filter(x => x.sheet_id !== id));
+    setSheetBumps(b => b.filter(x => x.sheet_id !== id));
+    showToast("Лист удалён");
+  };
+
+  const logout = async () => { if (supabase) await supabase.auth.signOut(); setAuth(null); };
 
   if (!auth) return <AuthScreen onLogin={setAuth} />;
 
@@ -2018,795 +833,588 @@ useEffect(() => {
 
   const navItems = [
     { id: "dashboard", label: "Панель", icon: "dashboard" },
-    { id: "workdays", label: "Рабочие дни", icon: "workdays" },
+    { id: "sheets", label: "Рабочие дни", icon: "sheets" },
     { id: "calc", label: "Калькулятор", icon: "calc" },
     { id: "catalog", label: "Каталог", icon: "catalog" },
     { id: "rate", label: "Курс", icon: "rate" },
     ...(isAdmin ? [{ id: "admin", label: "Админка", icon: "admin" }] : []),
   ];
 
-  const sortedTradeProducts = products
-    .filter((p) => p.status === "active")
-    .sort((a, b) => {
-      const aQty = Number(dayEntry[a.id]?.qty || 0);
-      const bQty = Number(dayEntry[b.id]?.qty || 0);
-      return bQty - aQty;
-    });
+  const catColors = ["#7c5cfc", "#38bdf8", "#34d399", "#fbbf24", "#f87171", "#a78bfa"];
+
+  const chartData = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+    const label = String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0");
+    const v = sheetOrders
+      .filter(o => { const od = new Date(o.created_at); return od.getDate() === d.getDate() && od.getMonth() === d.getMonth() && od.getFullYear() === d.getFullYear() && o.status === "sold"; })
+      .reduce((s, o) => { const p = products.find(x => x.id === o.product_id); return s + (p ? Math.round(calcProfit({ salePrice: o.sale_price, buyUsd: p.purchase_usd, playerokRate, commType: p.commission_type })) : 0); }, 0);
+    return { l: label, v: Math.max(0, v) };
+  });
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)" }}>
-      <style>{GLOBAL_STYLES}</style>
 
-      <aside
-        style={{
-          width: 215,
-          background: "rgba(13,9,19,.95)",
-          borderRight: "1px solid var(--border)",
-          display: "flex",
-          flexDirection: "column",
-          position: "fixed",
-          top: 0,
-          left: 0,
-          bottom: 0,
-          zIndex: 100,
-          backdropFilter: "blur(10px)",
-        }}
-      >
-        <div style={{ padding: "18px 14px 12px", display: "flex", alignItems: "center", gap: 9 }}>
-          <div className="logo-box" style={{ width: 34, height: 34, margin: 0, fontSize: 15 }}>
-            ◼
-          </div>
+      {/* SIDEBAR */}
+      <aside style={{ width: 176, background: "linear-gradient(180deg, #0b1120, #080d18)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 100 }}>
+        <div style={{ padding: "20px 14px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(135deg,#7c3aed,#4f46e5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0, boxShadow: "0 4px 14px rgba(124,92,252,.3)" }}>🎮</div>
           <div>
             <div style={{ fontSize: 13.5, fontWeight: 800, color: "var(--text)" }}>Playerok</div>
             <div style={{ fontSize: 10, color: "var(--text3)" }}>Tracker</div>
           </div>
         </div>
-
         <nav style={{ flex: 1, padding: "4px 8px" }}>
-          {navItems.map((item) => (
+          {navItems.map(item => (
             <div key={item.id} className={`nav-item${page === item.id ? " active" : ""}`} onClick={() => setPage(item.id)}>
-              <Icon name={item.icon} size={14} color={page === item.id ? "#fff" : "currentColor"} />
+              <Icon name={item.icon} size={14} color={page === item.id ? "#a78bfa" : "currentColor"} />
               {item.label}
             </div>
           ))}
         </nav>
-
-        <div style={{ padding: 8, borderTop: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 9px", borderRadius: 12, background: "#140f1d", border: "1px solid var(--border)" }}>
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg,#a855f7,#7e22ce)",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 11,
-                fontWeight: 800,
-                flexShrink: 0,
-              }}
-            >
-              {isAdmin ? "A" : auth.workerData?.name?.[0] || "W"}
+        <div style={{ padding: "8px", borderTop: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 9px", borderRadius: 9, background: "var(--bg3)" }}>
+            <div style={{ width: 26, height: 26, borderRadius: "50%", background: isAdmin ? "linear-gradient(135deg,#7c5cfc,#5c8bfc)" : "linear-gradient(135deg,#34d399,#38bdf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+              {isAdmin ? "A" : (auth.workerData?.name?.[0] || "W")}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {isAdmin ? "Admin" : auth.workerData?.name}
-              </div>
-              <div style={{ fontSize: 10, color: "var(--text3)" }}>
-                {isAdmin ? "Управляющий" : "Воркер"}
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isAdmin ? "Admin" : auth.workerData?.name}</div>
+              <div style={{ fontSize: 10, color: "var(--text3)" }}>{isAdmin ? "Управляющий" : "Воркер"}</div>
             </div>
-            <button className="btn-i" onClick={logout}>
-              <Icon name="logout" size={12} />
-            </button>
+            <button className="btn-i" onClick={logout} style={{ width: 22, height: 22, borderRadius: 6 }}><Icon name="logout" size={12} /></button>
           </div>
         </div>
       </aside>
 
-      <main style={{ marginLeft: 215, flex: 1, display: "flex", flexDirection: "column" }}>
-        <div
-          style={{
-            height: 56,
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "0 22px",
-            background: "rgba(13,9,19,.88)",
-            position: "sticky",
-            top: 0,
-            zIndex: 50,
-            backdropFilter: "blur(12px)",
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text)" }}>
-            {navItems.find((n) => n.id === page)?.label}
+      {/* MAIN */}
+      <main style={{ marginLeft: 176, flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* TOPBAR */}
+        <div style={{ height: 60, borderBottom: "1px solid rgba(99,102,241,.12)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", background: "rgba(5,10,22,.86)", position: "sticky", top: 0, zIndex: 50, backdropFilter: "blur(12px)" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
+            {navItems.find(n => n.id === page)?.label}
           </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-  {currentOpenDay ? (
-    <button className="btn-g" onClick={closeCurrentWorkDay}>
-      Закрыть рабочий день
-    </button>
-  ) : (
-    <button className="btn-p" onClick={openWorkDay}>
-      Открыть рабочий день
-    </button>
-  )}
- </div>
- </div>
-
-        <div style={{ flex: 1, padding: "18px 22px", overflowY: "auto" }}>
-          {page === "dashboard" && (
-  <div className="pa" style={{ display: "grid", gap: 14 }}>
-    <div
-      className="dashboard-top-grid"
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-        gap: 10,
-      }}
-    >
-      <MetricCard
-        label="Профит сегодня"
-        value={`${(currentOpenStats?.net || netToday) >= 0 ? "+" : ""}${fmt(currentOpenStats?.net || netToday)} ₽`}
-        sub={currentOpenDay ? `${toRuDate(currentOpenDay.date)} · открыт` : "день не открыт"}
-      />
-
-      <MetricCard
-        label="Общий профит"
-        value={`${totalProfit >= 0 ? "+" : ""}${fmt(totalProfit)} ₽`}
-        sub={`${workDays.filter((d) => d.status === "closed").length} закрытых дней`}
-      />
-
-      <MetricCard
-        label="Продажи сегодня"
-        value={String(currentOpenStats?.qty || totalQtyToday)}
-        sub={`${currentOpenStats?.revenue ? `${fmt(currentOpenStats.revenue)} ₽ оборот` : "нет продаж"}`}
-      />
-
-      <MetricCard
-        label="Средний чек"
-        value={`${
-          (currentOpenStats?.qty || totalQtyToday) > 0
-            ? fmt(
-                Math.round(
-                  (currentOpenStats?.revenue || 0) /
-                    Math.max(currentOpenStats?.qty || totalQtyToday, 1)
-                )
-              )
-            : "0"
-        } ₽`}
-        sub={`+${fmtF(playerokStats.rating || 0)} к вчера`}
-      />
-
-      <MetricCard
-        label="Отзывы"
-        value={String(playerokStats.reviews || 0)}
-        sub={playerokStats.sync_ok ? `Рейтинг ${playerokStats.rating || 0}` : "нет синхронизации"}
-      />
-
-      <MetricCard
-        label="В ожидании"
-        value={String(playerokStats.pending_orders || 0)}
-        sub={`${rub(playerokStats.pending_income)} ₽`}
-      />
-
-      <MetricCard
-        label="Выполнено за день"
-        value={String(playerokStats.completed_today || 0)}
-        sub={
-          statsLoading
-            ? "обновляем..."
-            : playerokStats.sync_ok
-            ? "синхронизировано"
-            : "нет синхронизации"
-        }
-      />
-    </div>
-
-    <div
-      className="dashboard-main-grid"
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1.05fr 1.1fr 2.1fr",
-        gap: 12,
-        alignItems: "stretch",
-      }}
-    >
-      <div className="card" style={{ padding: "14px 16px", minHeight: 278 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 10,
-          }}
-        >
-          <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-            Профит по дням
-          </div>
-
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--text3)",
-              padding: "6px 10px",
-              borderRadius: 10,
-              background: "#140f1d",
-              border: "1px solid var(--border)",
-            }}
-          >
-            7 дней
-          </div>
-        </div>
-
-        <MiniBar data={chartData.length ? chartData : [{ l: "—", v: 0 }]} />
-      </div>
-
-      <div
-        className="card"
-        style={{
-          padding: "14px 16px",
-          minHeight: 278,
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 10,
-            marginBottom: 10,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-              Live покупки
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 12px", borderRadius: 10, background: "#11182b", border: "1px solid rgba(99,102,241,.18)", color: "#e6ecff", fontSize: 12, fontWeight: 600 }}>
+              <Icon name="sheets" size={12} color="#9fb0ff" />
+              {todayStr()}
             </div>
-
-            <span
-              style={{
-                fontSize: 9,
-                fontWeight: 800,
-                color: "#86efac",
-                background: "rgba(34,197,94,.12)",
-                border: "1px solid rgba(34,197,94,.18)",
-                borderRadius: 999,
-                padding: "2px 6px",
-                letterSpacing: ".04em",
-              }}
-            >
-              LIVE
-            </span>
-          </div>
-
-          <button
-            className="btn-g"
-            style={{ padding: "6px 10px", fontSize: 11 }}
-            onClick={() => setOrdersModalOpen(true)}
-          >
-            Открыть всё
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gap: 8,
-            flex: 1,
-            overflowY: "auto",
-            paddingRight: 2,
-          }}
-        >
-          {playerokOrders.slice(0, 5).map((order) => {
-            const price = order.item?.price || order.item?.raw_price || 0;
-            const uiStatus = getOrderUiStatus(order);
-
-            return (
-              <div
-                key={order.id}
-                style={{
-                  padding: "9px 10px",
-                  borderRadius: 10,
-                  background: "rgba(168,85,247,.05)",
-                  border: "1px solid rgba(168,85,247,.12)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    color: "var(--text)",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    marginBottom: 5,
-                  }}
-                >
-                  {order.item?.name || "Без названия"}
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 11, color: "var(--text2)" }}>
-                      {rub(price)} ₽
-                    </div>
-                    <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>
-                      {toRuTime(order.created_at || order.createdAt)}
-                    </div>
-                  </div>
-
-                  <Badge status={uiStatus} />
-                </div>
-              </div>
-            );
-          })}
-
-          {!playerokOrders.length && (
-            <div style={{ color: "var(--text3)", fontSize: 12 }}>
-              Пока нет данных
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="card" style={{ padding: 0, overflow: "hidden", minHeight: 278 }}>
-        <div
-          style={{
-            padding: "12px 16px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>
-            Торговая таблица · {new Date().toLocaleDateString("ru-RU")}
-          </span>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, color: "var(--text3)" }}>
-              Сортировка по количеству продаж
-            </span>
-            <button
-              className="btn-g"
-              style={{ fontSize: 11, padding: "4px 9px" }}
-              onClick={() => {
-                if (!window.confirm("Сбросить счётчики сегодня?")) return;
-                const upd = { ...dailyCounts };
-                delete upd[dk];
-                setDailyCounts(upd);
-                showToast("Счётчики сброшены");
-              }}
-            >
-              Сбросить
+            {isAdmin && (
+              <button className="btn-p" onClick={() => sheets.some(s => s.status === "open") ? closeSheet(sheets.find(s => s.status === "open")?.id) : openM("addSheet")}>
+                <Icon name="plus" size={13} color="#fff" />
+                {sheets.some(s => s.status === "open") ? "Закрыть рабочий день" : "Открыть рабочий день"}
+              </button>
+            )}
+            <button className="btn-i" onClick={loadData} style={{ width: 34, height: 34, borderRadius: 10, background: "#11182b", border: "1px solid rgba(99,102,241,.18)", color: "#d8e1ff" }}>
+              <Icon name="refresh" size={14} color="#d8e1ff" />
             </button>
           </div>
         </div>
 
-        <div style={{ overflowX: "auto" }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Лот</th>
-                <th>Цена</th>
-                <th>Закуп / ед</th>
-                <th>Профит / ед</th>
-                <th>Кол-во</th>
-                <th>Поднятия</th>
-                <th>Итог</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTradeProducts.slice(0, 6).map((p) => {
-                const e = dayEntry[p.id] || { qty: 0, bumps: 0 };
-                const pp = Math.round(
-                  calcProfit({
-                    salePrice: p.sale_price_rub,
-                    buyUsd: p.purchase_usd,
-                    playerokRate,
-                    saleCommission: p.sale_commission,
-                  })
-                );
-                const tariff = getTariffByPrice(p.sale_price_rub, p.sale_commission);
-                const bumpStep = tariff.bump;
-                const total = pp * Number(e.qty || 0) - Number(e.bumps || 0);
+        <div style={{ flex: 1, padding: "18px 22px", overflowY: "auto" }}>
 
-                return (
-                  <tr key={p.id} className="tr">
-                    <td style={{ fontWeight: 700, color: "var(--text)", fontSize: 13 }}>
-                      {p.name}
-                    </td>
-                    <td style={{ fontWeight: 700, color: "var(--text)" }}>
-                      {fmt(p.sale_price_rub)} ₽
-                    </td>
-                    <td style={{ color: "var(--text3)" }}>${fmtF(p.purchase_usd)}</td>
-                    <td
-                      style={{
-                        fontWeight: 800,
-                        color: pp >= 0 ? "var(--success)" : "var(--danger)",
-                      }}
-                    >
-                      {pp >= 0 ? "+" : ""}
-                      {fmt(pp)} ₽
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <button className="cnt" onClick={() => updateDay(p.id, "qty", -1)}>
-                          −
-                        </button>
-                        <span
-                          style={{
-                            fontWeight: 800,
-                            color: "var(--text)",
-                            fontSize: 15,
-                            minWidth: 22,
-                            textAlign: "center",
-                          }}
-                        >
-                          {e.qty || 0}
-                        </span>
-                        <button className="cnt" onClick={() => updateDay(p.id, "qty", 1)}>
-                          +
-                        </button>
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <button
-                            className="cnt"
-                            onClick={() => updateDay(p.id, "bumps", -bumpStep)}
-                          >
-                            −
-                          </button>
-                          <span
-                            style={{
-                              fontWeight: 700,
-                              color:
-                                Number(e.bumps || 0) > 0 ? "var(--warning)" : "var(--text3)",
-                              fontSize: 12,
-                              minWidth: 48,
-                              textAlign: "center",
-                            }}
-                          >
-                            {Number(e.bumps || 0) > 0 ? `−${fmt(e.bumps)} ₽` : "0"}
-                          </span>
-                          <button
-                            className="cnt"
-                            onClick={() => updateDay(p.id, "bumps", bumpStep)}
-                          >
-                            +
-                          </button>
+          {/* DASHBOARD */}
+          {page === "dashboard" && (
+            <div className="pa" style={{ display: "grid", gap: 14 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                  gap: 10,
+                }}
+              >
+                <DashboardMetricCard
+                  label="Профит сегодня"
+                  value={`${netToday >= 0 ? "+" : ""}${fmt(netToday)} ₽`}
+                  sub={`${todayStr()} · открыт`}
+                  icon="admin"
+                  tone="violet"
+                  trend="line"
+                />
+                <DashboardMetricCard
+                  label="Общий профит"
+                  value={`+${fmt(combinedProfit)} ₽`}
+                  sub={`${totalClosedDays} закрытых дней`}
+                  icon="rate"
+                  tone="blue"
+                  trend="line"
+                />
+                <DashboardMetricCard
+                  label="Продажи сегодня"
+                  value={String(totalQtyToday)}
+                  sub={`${fmt(revenueToday)} ₽ оборот`}
+                  icon="catalog"
+                  tone="cyan"
+                  trend="bars"
+                />
+                <DashboardMetricCard
+                  label="Средний чек"
+                  value={`${fmt(avgCheckToday)} ₽`}
+                  sub={`${fmtF(totalQtyToday > 0 ? ((avgCheckToday / Math.max(playerokRate, 1)) * 0.1) : 0, 1)}% к вчера`}
+                  icon="sheets"
+                  tone="rose"
+                  trend="line"
+                />
+                <DashboardMetricCard
+                  label="Отзывы"
+                  value={fmt(totalSoldOrders)}
+                  sub={`Рейтинг ${totalSoldOrders > 0 ? 5 : 0}`}
+                  icon="plus"
+                  tone="amber"
+                  trend="line"
+                />
+                <DashboardMetricCard
+                  label="В ожидании"
+                  value={String(pendingCount)}
+                  sub={`${fmt(totalBumpsToday)} ₽`}
+                  icon="rate"
+                  tone="orange"
+                  trend="line"
+                />
+                <DashboardMetricCard
+                  label="Выполнено за день"
+                  value={String(totalQtyToday)}
+                  sub="Синхронизировано"
+                  icon="refresh"
+                  tone="green"
+                  trend="line"
+                />
+              </div>
+
+              <div
+                className="dashboard-main-grid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.15fr 1fr 1.9fr",
+                  gap: 12,
+                  alignItems: "stretch",
+                }}
+              >
+                <div className="card" style={{ padding: "14px 16px", minHeight: 286, background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Профит по дням</div>
+                    <div style={{ fontSize: 11, color: "#b5c0e5", padding: "6px 10px", borderRadius: 9, background: "#10172a", border: "1px solid rgba(99,102,241,.18)" }}>7 дней</div>
+                  </div>
+                  <DashboardLineChart data={chartData} />
+                </div>
+
+                <div className="card" style={{ padding: "14px 16px", minHeight: 286, display: "flex", flexDirection: "column", background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Live покупки</div>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: "#7ef7a1", background: "rgba(34,197,94,.15)", border: "1px solid rgba(34,197,94,.22)", borderRadius: 999, padding: "2px 6px", letterSpacing: ".04em" }}>LIVE</span>
+                    </div>
+                    <button className="btn-g" style={{ padding: "6px 10px", fontSize: 11 }} onClick={() => openM("addOrder")}>Добавить</button>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 8, overflowY: "auto", paddingRight: 2, flex: 1 }}>
+                    {recentOrders.map(order => (
+                      <div key={order.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr auto", gap: 10, alignItems: "center", padding: "10px 10px", borderRadius: 10, background: "rgba(255,255,255,.02)", border: "1px solid rgba(96,165,250,.08)" }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(180deg, rgba(37,99,235,.22), rgba(139,92,246,.18))", display: "grid", placeItems: "center" }}>
+                          <Icon name="catalog" size={14} color="#dbe6ff" />
                         </div>
-                        <div style={{ fontSize: 10, color: "var(--text3)" }}>
-                          шаг: {fmt(bumpStep)} ₽
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#eff4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{order.product?.name || "Без названия"}</div>
+                          <div style={{ fontSize: 11, color: "#94a3c4", marginTop: 2 }}>{fmt(order.sale_price)} ₽</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: order.status === "sold" ? "#67e28b" : "#fbbf24", marginBottom: 4 }}>{order.statusLabel}</div>
+                          <div style={{ fontSize: 11, color: "#7f89a9" }}>{order.time}</div>
                         </div>
                       </div>
-                    </td>
-                    <td
-                      style={{
-                        fontWeight: 800,
-                        fontSize: 13,
-                        color:
-                          Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0
-                            ? total >= 0
-                              ? "var(--success)"
-                              : "var(--danger)"
-                            : "var(--text3)",
-                      }}
-                    >
-                      {Number(e.qty || 0) > 0 || Number(e.bumps || 0) > 0
-                        ? `${total >= 0 ? "+" : ""}${fmt(total)} ₽`
-                        : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
+                    ))}
 
-              {!sortedTradeProducts.length && (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "30px", color: "var(--text3)" }}>
-                    Товаров нет — добавь в Каталоге
-                  </td>
-                </tr>
-              )}
+                    {!recentOrders.length && <div style={{ color: "#6f7a99", fontSize: 12 }}>Пока нет данных</div>}
+                  </div>
+                </div>
 
-              <tr style={{ background: "rgba(168,85,247,.05)" }}>
-                <td
-                  colSpan={4}
-                  style={{
-                    fontWeight: 800,
-                    color: "var(--text)",
-                    fontSize: 12,
-                    borderTop: "1px solid var(--border2)",
-                  }}
-                >
-                  Итого
-                </td>
-                <td
-                  style={{
-                    fontWeight: 800,
-                    color: "var(--text)",
-                    borderTop: "1px solid var(--border2)",
-                  }}
-                >
-                  {totalQtyToday}
-                </td>
-                <td
-                  style={{
-                    color: totalBumpsToday > 0 ? "var(--warning)" : "var(--text3)",
-                    fontWeight: 700,
-                    borderTop: "1px solid var(--border2)",
-                  }}
-                >
-                  {totalBumpsToday > 0 ? `−${fmt(totalBumpsToday)} ₽` : "—"}
-                </td>
-                <td
-                  style={{
-                    fontWeight: 800,
-                    fontSize: 14,
-                    color: netToday >= 0 ? "var(--success)" : "var(--danger)",
-                    borderTop: "1px solid var(--border2)",
-                  }}
-                >
-                  {netToday >= 0 ? "+" : ""}
-                  {fmt(netToday)} ₽
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+                <div className="card" style={{ padding: 0, overflow: "hidden", minHeight: 286, background: "linear-gradient(180deg, #0b1325, #0a1020)" }}>
+                  <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(96,165,250,.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "#eff4ff" }}>Торговая таблица · {todayStr()}</span>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, color: "#7f89a9" }}>Сортировка по количеству продаж</span>
+                      <button className="btn-g" style={{ fontSize: 11, padding: "4px 9px" }} onClick={() => {
+                        if (!window.confirm("Сбросить счётчики сегодня?")) return;
+                        const u = { ...dailyCounts }; delete u[dk];
+                        setDailyCounts(u); lsSet(LS.dailyCounts, u);
+                        showToast("Счётчики сброшены");
+                      }}>Сбросить</button>
+                    </div>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr><th>Лот</th><th>Категория</th><th>Цена</th><th>Закуп / ед</th><th>Профит / ед</th><th>Кол-во</th><th>Поднятия</th><th>Итог</th></tr>
+                      </thead>
+                      <tbody>
+                        {products.filter(p => p.status === "active").slice(0, 5).map(p => {
+                          const e = dayEntry[p.id] || { qty: 0, bumps: 0 };
+                          const pp = Math.round(calcProfit({ salePrice: p.sale_price_rub, buyUsd: p.purchase_usd, playerokRate, commType: p.commission_type }));
+                          const итог = pp * e.qty - (e.bumps || 0);
+                          return (
+                            <tr key={p.id} className="tr">
+                              <td style={{ fontWeight: 700, color: "#eef3ff", fontSize: 13 }}>{p.name}</td>
+                              <td><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: "rgba(139,92,246,.12)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,.15)" }}>{p.category || "—"}</span></td>
+                              <td style={{ fontWeight: 700, color: "#eef3ff" }}>{fmt(p.sale_price_rub)} ₽</td>
+                              <td style={{ color: "#9ba7c8" }}>${fmtF(p.purchase_usd)}</td>
+                              <td style={{ fontWeight: 800, color: pp >= 0 ? "#61e58f" : "#fb7185" }}>{pp >= 0 ? "+" : ""}{fmt(pp)} ₽</td>
+                              <td>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <button className="cnt" onClick={() => updateDay(p.id, "qty", -1)}>−</button>
+                                  <span style={{ fontWeight: 800, color: "#eef3ff", fontSize: 15, minWidth: 22, textAlign: "center" }}>{e.qty}</span>
+                                  <button className="cnt" onClick={() => updateDay(p.id, "qty", 1)}>+</button>
+                                </div>
+                              </td>
+                              <td>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", -10)}>−</button>
+                                  <span style={{ fontWeight: 700, color: (e.bumps || 0) > 0 ? "#f6c356" : "#7f89a9", fontSize: 12, minWidth: 36, textAlign: "center" }}>{(e.bumps || 0) > 0 ? `−${fmt(e.bumps)} ₽` : "0"}</span>
+                                  <button className="cnt" onClick={() => updateDay(p.id, "bumps", 10)}>+</button>
+                                </div>
+                              </td>
+                              <td style={{ fontWeight: 800, fontSize: 13, color: (e.qty > 0 || (e.bumps || 0) > 0) ? (итог >= 0 ? "#61e58f" : "#fb7185") : "#7f89a9" }}>
+                                {(e.qty > 0 || (e.bumps || 0) > 0) ? `${итог >= 0 ? "+" : ""}${fmt(итог)} ₽` : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {!products.filter(p => p.status === "active").length && (
+                          <tr><td colSpan={8} style={{ textAlign: "center", padding: "30px", color: "#7f89a9" }}>Товаров нет — добавь в Каталоге</td></tr>
+                        )}
+                        <tr style={{ background: "rgba(139,92,246,.05)" }}>
+                          <td colSpan={5} style={{ fontWeight: 800, color: "#eef3ff", fontSize: 12, borderTop: "1px solid rgba(139,92,246,.12)" }}>Итого</td>
+                          <td style={{ fontWeight: 800, color: "#eef3ff", borderTop: "1px solid rgba(139,92,246,.12)" }}>{totalQtyToday}</td>
+                          <td style={{ color: totalBumpsToday > 0 ? "#f6c356" : "#7f89a9", fontWeight: 700, borderTop: "1px solid rgba(139,92,246,.12)" }}>{totalBumpsToday > 0 ? `−${fmt(totalBumpsToday)} ₽` : "—"}</td>
+                          <td style={{ fontWeight: 800, fontSize: 14, color: netToday >= 0 ? "#61e58f" : "#fb7185", borderTop: "1px solid rgba(139,92,246,.12)" }}>{netToday >= 0 ? "+" : ""}{fmt(netToday)} ₽</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
 
-          {page === "workdays" && (
-            <WorkDaysPage
-              workDays={workDays}
-              currentOpenDayId={currentOpenDayId}
-              openWorkDay={openWorkDay}
-              closeCurrentWorkDay={closeCurrentWorkDay}
-              selectedWorkDayId={selectedWorkDayId}
-              setSelectedWorkDayId={setSelectedWorkDayId}
-              getWorkDayStats={getWorkDayStats}
-              products={products}
-              categories={categories}
-            />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                  gap: 12,
+                  padding: "16px 18px",
+                  borderRadius: 16,
+                  border: "1px solid rgba(99,102,241,.14)",
+                  background: "linear-gradient(180deg, #0b1223, #0a1020)",
+                }}
+              >
+                <DashboardBottomStat icon="rate" title="Курс Google" value={`${fmtF(googleRate)} ₽`} sub="обновляется вручную" tone="violet" />
+                <DashboardBottomStat icon="admin" title="Курс Playerok" value={`${fmtF(playerokRate)} ₽`} sub="установлен вручную" tone="blue" />
+                <DashboardBottomStat icon="sheets" title="К выводу" value={`${fmt(combinedProfit)} ₽`} sub={`из ${fmt(combinedProfit + workerProfit)} ₽`} tone="rose" />
+                <DashboardBottomStat icon="catalog" title="В ожидании" value={`${fmt(totalBumpsToday)} ₽`} sub={`${pendingCount} листов`} tone="orange" />
+                <DashboardBottomStat icon="refresh" title="Синхронизация" value="Онлайн" sub="локально сохранено" tone="green" />
+              </div>
+            </div>
+          )}
+
+          {/* SHEETS */}
+          {page === "sheets" && (
+            <div className="pa">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <span style={{ fontSize: 12, color: "var(--text3)" }}>{sheets.filter(s => s.status === "open").length} открытых · {sheets.filter(s => s.status === "closed").length} закрытых</span>
+                {isAdmin && <button className="btn-p" onClick={() => openM("addSheet")}><Icon name="plus" size={13} color="#fff" /> Новый лист</button>}
+              </div>
+              {!sheets.length && <div style={{ textAlign: "center", padding: "50px", color: "var(--text3)" }}>📋 Листов пока нет</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 13 }}>
+                {sheets.map((sh, i) => {
+                  const { net, bumps } = getSheetProfit(sh.id);
+                  const cnt = sheetOrders.filter(o => o.sheet_id === sh.id && o.status === "sold").length;
+                  const share = workerShares[sh.id] ?? 50;
+                  const wk = workers.find(w => w.id == sh.worker_id);
+                  return (
+                    <div key={sh.id} style={{ background: "var(--card)", border: `1px solid ${sh.status === "open" ? "rgba(56,189,248,.22)" : "var(--border)"}`, borderRadius: "var(--r2)", padding: 16, animation: `fadeUp .28s ease ${i * .04}s both`, transition: "transform .2s", position: "relative" }}
+                      onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+                      onMouseLeave={e => e.currentTarget.style.transform = ""}>
+                      <div style={{ position: "absolute", top: 13, right: 13 }}><Badge status={sh.status} /></div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 2 }}>{sh.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 12 }}>{wk?.name || "Admin"}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 11 }}>
+                        {[
+                          [cnt, "Продаж", "var(--text)"],
+                          [(net >= 0 ? "+" : "") + fmt(net) + " ₽", "Профит", net >= 0 ? "var(--success)" : "var(--danger)"],
+                          [bumps ? "−" + fmt(bumps) + " ₽" : "0", "Поднятия", "var(--warning)"]
+                        ].map(([v, l, c], j) => (
+                          <div key={j} style={{ textAlign: "center", background: "var(--bg3)", borderRadius: 7, padding: "7px 3px" }}>
+                            <div style={{ fontSize: j === 0 ? 17 : 12, fontWeight: 800, color: c }}>{v}</div>
+                            <div style={{ fontSize: 9.5, color: "var(--text3)", marginTop: 1 }}>{l}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {isAdmin && sh.worker_id && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", background: "var(--bg3)", borderRadius: 7, marginBottom: 9 }}>
+                          <span style={{ fontSize: 11, color: "var(--text3)", flex: 1 }}>Доля воркера</span>
+                          <input type="number" min={0} max={100} value={share}
+                            onChange={e => { const ns = { ...workerShares, [sh.id]: +e.target.value }; setWorkerShares(ns); lsSet(LS.workerShares, ns); }}
+                            style={{ width: 44, padding: "3px 5px", background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text)", fontSize: 12, textAlign: "center", fontFamily: "inherit" }} />
+                          <span style={{ fontSize: 11, color: "var(--text3)" }}>%</span>
+                        </div>
+                      )}
+                      {isAdmin && sh.status === "open" && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="btn-g" style={{ flex: 1, fontSize: 11, justifyContent: "center" }} onClick={() => closeSheet(sh.id)}>✓ Закрыть лист</button>
+                          <button className="btn-i d" onClick={() => deleteSheet(sh.id)}><Icon name="x" size={12} /></button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
 
           {page === "calc" && <CalcPage products={products} playerokRate={playerokRate} />}
 
           {page === "catalog" && (
             <CatalogPage
-              products={products}
-              setProducts={setProducts}
-              categories={categories}
-              setCategories={setCategories}
-              playerokRate={playerokRate}
-              isAdmin={isAdmin}
-              openM={openM}
-              setEditTarget={setEditTarget}
-              showToast={showToast}
+              products={products} setProducts={setProducts}
+              categories={categories} setCategories={setCategories}
+              playerokRate={playerokRate} isAdmin={isAdmin}
+              openM={openM} setEditTarget={setEditTarget} showToast={showToast}
             />
           )}
 
-          {page === "rate" && (
-            <RatePage
-              googleRate={googleRate}
-              setGR={setGR}
-              playerokRate={playerokRate}
-              setPR={setPR}
-              isAdmin={isAdmin}
-              showToast={showToast}
-            />
-          )}
+          {page === "rate" && <RatePage googleRate={googleRate} setGR={setGR} playerokRate={playerokRate} setPR={setPR} isAdmin={isAdmin} showToast={showToast} />}
 
+          {/* ADMIN */}
           {page === "admin" && isAdmin && (
             <div className="pa">
-              <div style={{ display: "grid", gridTemplateColumns: "1.15fr .85fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
                 <div className="card">
-                  <div className="block-title">Воркеры</div>
-
-                  <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                    <button className="btn-p" onClick={() => openM("addWorker")}>
-                      <Icon name="plus" size={12} color="#fff" /> Добавить воркера
-                    </button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Воркеры</span>
+                    <button className="btn-g" onClick={() => openM("addWorker")}><Icon name="plus" size={12} /> Добавить</button>
                   </div>
-
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {workers.map((wk) => {
-                      const workerProfit = workDays.reduce((sum, day) => {
-                        const stats = getWorkDayStats(day);
-                        const share = workerShares[day.id] ?? wk.share ?? 50;
-                        return sum + Math.round(stats.net * (share / 100));
-                      }, 0);
-
+                  {!workers.length && <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text3)", fontSize: 12 }}>Нет воркеров</div>}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {workers.map(wk => {
+                      const wkS = sheets.filter(s => s.worker_id == wk.id);
+                      const wProfit = wkS.reduce((s, sh) => s + Math.round(getSheetProfit(sh.id).net * (workerShares[sh.id] ?? wk.share ?? 50) / 100), 0);
                       return (
-                        <div key={wk.id} className="card" style={{ padding: 12, background: "#140f1d" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#a855f7,#7e22ce)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>
-                              {wk.name?.[0] || "W"}
-                            </div>
-
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{wk.name}</div>
-                              <div style={{ fontSize: 10, color: "var(--text3)" }}>{wk.share}%</div>
-                              <div style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text2)", background: "rgba(168,85,247,.08)", padding: "1px 5px", borderRadius: 4, display: "inline-block", marginTop: 2 }}>
-                                {wk.key}
-                              </div>
-                            </div>
-
-                            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--success)", whiteSpace: "nowrap" }}>
-                              +{fmt(workerProfit)} ₽
-                            </div>
-
-                            <button
-                              className="btn-i d"
-                              onClick={async () => {
-                                if (!window.confirm("Удалить воркера?")) return;
-                                if (supabase) await supabase.from("worker_keys").delete().eq("id", wk.id);
-                                setWorkers((prev) => prev.filter((x) => x.id !== wk.id));
-                                showToast("Воркер удалён");
-                              }}
-                            >
-                              <Icon name="x" size={12} />
-                            </button>
+                        <div key={wk.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", background: "var(--bg3)", borderRadius: "var(--r)", border: "1px solid var(--border)" }}>
+                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#34d399,#38bdf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff", flexShrink: 0 }}>{wk.name?.[0]}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{wk.name}</div>
+                            <div style={{ fontSize: 10, color: "var(--text3)" }}>{wkS.length} листов · {wk.share}%</div>
+                            <div style={{ fontFamily: "monospace", fontSize: 10, color: "#38bdf8", background: "rgba(56,189,248,.07)", padding: "1px 5px", borderRadius: 3, display: "inline-block", marginTop: 1 }}>{wk.key}</div>
                           </div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: "var(--success)", whiteSpace: "nowrap" }}>+{fmt(wProfit)} ₽</div>
+                          <button className="btn-i d" onClick={async () => {
+                            if (!window.confirm("Удалить воркера?")) return;
+                            if (supabase) await supabase.from("worker_keys").delete().eq("id", wk.id);
+                            setWorkers(prev => prev.filter(x => x.id !== wk.id));
+                            showToast("Воркер удалён");
+                          }}><Icon name="x" size={12} /></button>
                         </div>
                       );
                     })}
-
-                    {!workers.length && <div style={{ color: "var(--text3)", fontSize: 12 }}>Воркеров пока нет</div>}
                   </div>
                 </div>
-
-                <div style={{ display: "grid", gap: 12 }}>
-                  <div className="card">
-                    <div className="block-title">Настройки</div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button
-                        className="btn-g"
-                        onClick={() => {
-                          const blob = new Blob([JSON.stringify({ workDays, workers, products, categories }, null, 2)], {
-                            type: "application/json",
-                          });
-                          const a = document.createElement("a");
-                          a.href = URL.createObjectURL(blob);
-                          a.download = "playerok-backup.json";
-                          a.click();
-                          showToast("Экспорт готов");
-                        }}
-                      >
-                        ↓ Экспорт JSON
-                      </button>
-
-                      <button className="btn-g" onClick={loadData}>
-                        <Icon name="refresh" size={12} /> Обновить данные
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="card">
-                    <div className="block-title">Статистика</div>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      <div className="mini-stat">
-                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>Товаров</div>
-                        <div style={{ fontSize: 22, fontWeight: 800 }}>{products.length}</div>
-                      </div>
-                      <div className="mini-stat">
-                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>Категорий</div>
-                        <div style={{ fontSize: 22, fontWeight: 800 }}>{categories.length}</div>
-                      </div>
-                      <div className="mini-stat">
-                        <div style={{ fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".08em" }}>Рабочих дней</div>
-                        <div style={{ fontSize: 22, fontWeight: 800 }}>{workDays.length}</div>
-                      </div>
-                    </div>
+                <div className="card">
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginBottom: 14 }}>Настройки</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="btn-g" onClick={() => {
+                      const b = new Blob([JSON.stringify({ sheets, sheetOrders, workers, products, categories }, null, 2)], { type: "application/json" });
+                      const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "playerok-backup.json"; a.click();
+                      showToast("Экспорт готов");
+                    }}>↓ Экспорт JSON</button>
+                    <button className="btn-g" onClick={loadData}><Icon name="refresh" size={12} /> Обновить данные</button>
                   </div>
                 </div>
               </div>
+              {wSheets.length > 0 && (
+                <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                  <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Листы воркеров</div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead><tr>{["Лист", "Воркер", "Продаж", "Профит", "Доля", "Воркер", "Admin", "Статус"].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {wSheets.map(sh => {
+                          const wk = workers.find(w => w.id == sh.worker_id);
+                          const { net } = getSheetProfit(sh.id);
+                          const share = workerShares[sh.id] ?? wk?.share ?? 50;
+                          const wP = Math.round(net * share / 100);
+                          const aP = Math.round(net * (100 - share) / 100);
+                          const cnt = sheetOrders.filter(o => o.sheet_id === sh.id && o.status === "sold").length;
+                          return (
+                            <tr key={sh.id} className="tr">
+                              <td style={{ fontWeight: 600, color: "var(--text)" }}>{sh.name}</td>
+                              <td>{wk?.name || "—"}</td>
+                              <td>{cnt}</td>
+                              <td style={{ fontWeight: 600, color: net >= 0 ? "var(--success)" : "var(--danger)" }}>{net >= 0 ? "+" : ""}{fmt(net)} ₽</td>
+                              <td style={{ color: "var(--text3)" }}>{share}%</td>
+                              <td>+{fmt(wP)} ₽</td>
+                              <td style={{ fontWeight: 700, color: "var(--success)" }}>+{fmt(aP)} ₽</td>
+                              <td><Badge status={sh.status} /></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       </main>
 
-      <AddCategoryModal
-        open={!!modals.addCategory}
-        onClose={() => closeM("addCategory")}
-        onAdd={async ({ name }) => {
-          if (supabase) {
-            const { data } = await supabase.from("categories").insert([{ name }]).select().single();
-            setCategories((prev) => [...prev, data]);
-          } else {
-            setCategories((prev) => [...prev, { id: Date.now(), name }]);
-          }
-          showToast("Категория добавлена");
-          closeM("addCategory");
-        }}
-      />
+      {/* MODALS */}
+      <AddOrderModal open={!!modals.addOrder} onClose={() => closeM("addOrder")} products={products} sheets={sheets.filter(s => s.status === "open")} workers={workers} isAdmin={isAdmin} onAdd={async order => {
+        if (supabase) { await supabase.from("sheet_orders").insert([order]); if (order.bumps > 0) await supabase.from("sheet_bumps").insert([{ sheet_id: order.sheet_id, amount: order.bumps }]); await loadData(); }
+        else { setSheetOrders(prev => [...prev, { ...order, id: Date.now(), created_at: new Date().toISOString() }]); }
+        showToast("Продажа добавлена"); closeM("addOrder");
+      }} />
 
-      <AddProductModal
-        open={!!modals.addProduct}
-        onClose={() => closeM("addProduct")}
-        categories={categories}
-        onAdd={async (p) => {
-          if (supabase) {
-            const { data } = await supabase.from("products").insert([p]).select("*, categories(name)").single();
-            setProducts((prev) => [...prev, { ...data, category: data.categories?.name || "" }]);
-          } else {
-            setProducts((prev) => [...prev, {
-              ...p,
-              id: Date.now(),
-              category: categories.find((c) => Number(c.id) === Number(p.category_id))?.name || "",
-            }]);
-          }
-          showToast("Товар добавлен");
-          closeM("addProduct");
-        }}
-      />
+      <AddSheetModal open={!!modals.addSheet} onClose={() => closeM("addSheet")} workers={workers} isAdmin={isAdmin} onAdd={async s => {
+        if (supabase) { const { data } = await supabase.from("day_sheets").insert([s]).select().single(); setSheets(prev => [data, ...prev]); }
+        else setSheets(prev => [{ ...s, id: Date.now(), created_at: new Date().toISOString() }, ...prev]);
+        showToast("Лист создан"); closeM("addSheet");
+      }} />
+
+      <AddWorkerModal open={!!modals.addWorker} onClose={() => closeM("addWorker")} onAdd={async w => {
+        if (supabase) { await supabase.from("worker_keys").insert([w]); await loadData(); }
+        else setWorkers(prev => [...prev, { ...w, id: Date.now() }]);
+        showToast("Воркер добавлен"); closeM("addWorker");
+      }} />
+
+      <AddCategoryModal open={!!modals.addCategory} onClose={() => closeM("addCategory")} onAdd={async name => {
+        if (supabase) { const { data } = await supabase.from("categories").insert([{ name }]).select().single(); setCategories(prev => [...prev, data]); }
+        else setCategories(prev => [...prev, { id: Date.now(), name }]);
+        showToast("Категория добавлена"); closeM("addCategory");
+      }} />
+
+      <AddProductModal open={!!modals.addProduct} onClose={() => closeM("addProduct")} categories={categories} onAdd={async p => {
+        if (supabase) { const { data } = await supabase.from("products").insert([p]).select("*, categories(name)").single(); setProducts(prev => [...prev, { ...data, category: data.categories?.name || "" }]); }
+        else setProducts(prev => [...prev, { ...p, id: Date.now(), category: categories.find(c => c.id == p.category_id)?.name || "" }]);
+        showToast("Товар добавлен"); closeM("addProduct");
+      }} />
 
       {editTarget && (
-        <EditProductModal
-          open={!!modals.editProduct}
-          onClose={() => {
-            closeM("editProduct");
-            setEditTarget(null);
-          }}
-          product={editTarget}
-          categories={categories}
-          onSave={async (id, upd) => {
-            if (supabase) await supabase.from("products").update(upd).eq("id", id);
-            setProducts((prev) =>
-              prev.map((x) =>
-                x.id === id
-                  ? {
-                      ...x,
-                      ...upd,
-                      category: categories.find((c) => Number(c.id) === Number(upd.category_id))?.name || x.category,
-                    }
-                  : x
-              )
-            );
-            showToast("Товар обновлён");
-            closeM("editProduct");
-            setEditTarget(null);
-          }}
-        />
+        <EditProductModal open={!!modals.editProduct} onClose={() => { closeM("editProduct"); setEditTarget(null); }} product={editTarget} categories={categories} onSave={async (id, upd) => {
+          if (supabase) await supabase.from("products").update(upd).eq("id", id);
+          setProducts(prev => prev.map(x => x.id === id ? { ...x, ...upd, category: categories.find(c => c.id == upd.category_id)?.name || x.category } : x));
+          showToast("Товар обновлён"); closeM("editProduct"); setEditTarget(null);
+        }} />
       )}
 
-      <><AddWorkerModal
-    open={!!modals.addWorker}
-    onClose={() => closeM("addWorker")}
-    onAdd={async (worker) => {
-      if (supabase) {
-        const { data } = await supabase.from("worker_keys").insert([worker]).select().single();
-        setWorkers((prev) => [...prev, data]);
-      } else {
-        setWorkers((prev) => [...prev, { ...worker, id: Date.now() }]);
-      }
-      showToast("Воркер добавлен");
-      closeM("addWorker");
-    } } /><OrdersModal
-      open={ordersModalOpen}
-      onClose={() => setOrdersModalOpen(false)}
-      orders={playerokOrders}
-      loading={ordersLoading} /><Toast toast={toast} /></>
+      <Toast toast={toast} />
     </div>
+  );
+}
+
+// ── MODAL COMPONENTS ──────────────────────────────────────────────────────────
+
+function AddOrderModal({ open, onClose, products, sheets, workers, isAdmin, onAdd }) {
+  const [pid, setPid] = useState("");
+  const [sp, setSp] = useState("");
+  const [bm, setBm] = useState(0);
+  const [sid, setSid] = useState("");
+  const [wid, setWid] = useState("");
+
+  useEffect(() => { if (sheets.length && open) setSid(sheets[0].id); }, [open]);
+  useEffect(() => { const p = products.find(x => x.id == pid); if (p) setSp(p.sale_price_rub); }, [pid]);
+
+  const submit = () => {
+    if (!pid || !sp || !sid) return;
+    onAdd({ sheet_id: +sid, product_id: +pid, sale_price: +sp, bumps: +bm || 0, status: "sold" });
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Добавить продажу">
+      <FS label="Товар" value={pid} onChange={e => setPid(e.target.value)} options={[{ value: "", label: "— выберите —" }, ...products.map(p => ({ value: p.id, label: p.name }))]} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+        <FI label="Цена продажи (₽)" type="number" value={sp} onChange={e => setSp(e.target.value)} placeholder="0" />
+        <FI label="Поднятия (₽)" type="number" value={bm} onChange={e => setBm(e.target.value)} placeholder="0" />
+      </div>
+      <FS label="Лист" value={sid} onChange={e => setSid(e.target.value)} options={sheets.map(s => ({ value: s.id, label: s.name }))} />
+      {isAdmin && <FS label="Воркер" value={wid} onChange={e => setWid(e.target.value)} options={[{ value: "", label: "Admin (я)" }, ...workers.map(w => ({ value: w.id, label: w.name }))]} />}
+      <MFoot onClose={onClose} onSubmit={submit} label="Добавить" />
+    </Modal>
+  );
+}
+
+function AddSheetModal({ open, onClose, workers, isAdmin, onAdd }) {
+  const [name, setName] = useState(todayStr());
+  const [wid, setWid] = useState("");
+  return (
+    <Modal open={open} onClose={onClose} title="Новый лист">
+      <FI label="Название" value={name} onChange={e => setName(e.target.value)} placeholder={todayStr()} />
+      {isAdmin && <FS label="Воркер" value={wid} onChange={e => setWid(e.target.value)} options={[{ value: "", label: "Admin (я)" }, ...workers.map(w => ({ value: w.id, label: w.name }))]} />}
+      <MFoot onClose={onClose} onSubmit={() => onAdd({ name, status: "open", worker_id: wid || null })} label="Создать" />
+    </Modal>
+  );
+}
+
+function AddWorkerModal({ open, onClose, onAdd }) {
+  const [name, setName] = useState("");
+  const [key, setKey] = useState("");
+  const [share, setShare] = useState(50);
+  return (
+    <Modal open={open} onClose={onClose} title="Добавить воркера">
+      <FI label="Имя" value={name} onChange={e => setName(e.target.value)} placeholder="Имя воркера" />
+      <Field label="Worker Key">
+        <div style={{ display: "flex", gap: 7 }}>
+          <input className="fi" value={key} onChange={e => setKey(e.target.value)} placeholder="worker-xxxx" style={{ flex: 1 }} />
+          <button className="btn-g" onClick={() => setKey("worker-" + Math.random().toString(36).slice(2, 10))}>Генерировать</button>
+        </div>
+      </Field>
+      <FI label="Доля (%)" type="number" value={share} onChange={e => setShare(e.target.value)} placeholder="50" />
+      <MFoot onClose={onClose} onSubmit={() => { if (!name || !key) return; onAdd({ name, key, share: +share }); }} label="Добавить" />
+    </Modal>
+  );
+}
+
+function AddCategoryModal({ open, onClose, onAdd }) {
+  const [name, setName] = useState("");
+  return (
+    <Modal open={open} onClose={onClose} title="Новая категория" width={360}>
+      <FI label="Название" value={name} onChange={e => setName(e.target.value)} placeholder="Steam, Valorant..." />
+      <MFoot onClose={onClose} onSubmit={() => { if (!name) return; onAdd(name); setName(""); }} label="Создать" />
+    </Modal>
+  );
+}
+
+function AddProductModal({ open, onClose, categories, onAdd }) {
+  const [name, setName] = useState("");
+  const [catId, setCatId] = useState("");
+  const [price, setPrice] = useState("");
+  const [buyUsd, setBuyUsd] = useState("");
+  const [ct, setCt] = useState("standard");
+  return (
+    <Modal open={open} onClose={onClose} title="Добавить товар">
+      <FI label="Название" value={name} onChange={e => setName(e.target.value)} placeholder="Название товара" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+        <FS label="Категория" value={catId} onChange={e => setCatId(e.target.value)} options={[{ value: "", label: "Без категории" }, ...categories.map(c => ({ value: c.id, label: c.name }))]} />
+        <FI label="Цена продажи (₽)" type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="0" />
+        <FI label="Закупка ($)" type="number" value={buyUsd} onChange={e => setBuyUsd(e.target.value)} placeholder="0" />
+        <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "5% Standard" }, { value: "premium", label: "4% Premium" }]} />
+      </div>
+      <MFoot onClose={onClose} onSubmit={() => { if (!name || !price) return; onAdd({ name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status: "active" }); }} label="Добавить" />
+    </Modal>
+  );
+}
+
+function EditProductModal({ open, onClose, product: p, categories, onSave }) {
+  const [name, setName] = useState(p.name);
+  const [catId, setCatId] = useState(p.category_id || "");
+  const [price, setPrice] = useState(p.sale_price_rub);
+  const [buyUsd, setBuyUsd] = useState(p.purchase_usd);
+  const [ct, setCt] = useState(p.commission_type || "standard");
+  const [status, setStatus] = useState(p.status || "active");
+  return (
+    <Modal open={open} onClose={onClose} title={"Редактировать: " + p.name}>
+      <FI label="Название" value={name} onChange={e => setName(e.target.value)} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+        <FS label="Категория" value={catId} onChange={e => setCatId(e.target.value)} options={[{ value: "", label: "Без категории" }, ...categories.map(c => ({ value: c.id, label: c.name }))]} />
+        <FI label="Цена продажи (₽)" type="number" value={price} onChange={e => setPrice(e.target.value)} />
+        <FI label="Закупка ($)" type="number" value={buyUsd} onChange={e => setBuyUsd(e.target.value)} />
+        <FS label="Комиссия" value={ct} onChange={e => setCt(e.target.value)} options={[{ value: "standard", label: "5% Standard" }, { value: "premium", label: "4% Premium" }]} />
+        <FS label="Статус" value={status} onChange={e => setStatus(e.target.value)} options={[{ value: "active", label: "Активен" }, { value: "inactive", label: "Неактивен" }]} />
+      </div>
+      <MFoot onClose={onClose} onSubmit={() => onSave(p.id, { name, category_id: catId || null, sale_price_rub: +price, purchase_usd: +buyUsd || 0, commission_type: ct, status })} label="Сохранить" />
+    </Modal>
   );
 }
